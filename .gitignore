@@ -1,0 +1,11 @@
+/target/
+/.local/
+/config/*.local.toml
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+.DS_Store
+.env
+.env.*
+!.env.example
