@@ -1,0 +1,20 @@
+[package]
+name = "moonitor-agent"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+moonitor-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+sysinfo = { version = "0.39.6", default-features = false, features = ["system", "disk", "network", "component"] }
+ureq = { version = "3.5.0", default-features = false, features = ["json"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+nvml-wrapper = "0.13.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10.1"

@@ -1,27 +1,31 @@
 # Architecture
 
-## Proposed components
+## Components
 
 | Component | Role | Status |
 | --- | --- | --- |
-| `moonitor-core` | Shared telemetry types and measurement semantics | Initial types |
-| `moonitor-agent` | Local platform collection and runtime adapters | Planned |
-| `moonitor-store` | SQLite ingestion, retention and historical queries | Planned |
-| `moonitor-desktop` | Native Rust egui/eframe fleet and device UI | Planned |
+| `moonitor-core` | Shared telemetry types and measurement semantics | Implemented |
+| `moonitor-agent` | Local platform collection and Ollama adapter | Implemented |
+| `moonitor-store` | SQLite summaries, seven-day retention and recent history | Implemented |
+| `moonitor-desktop` | Native Rust egui/eframe fleet and device UI | Implemented |
 
 The headless agent must not depend on the desktop rendering stack.
 
 ## Data flow
 
-An agent on each computer collects platform and runtime measurements. The native
-desktop consumes recent snapshots and history. An optional always-on collector
-and SQLite store on Zima can preserve history when the MacBook sleeps. The
-desktop should also support local collection without that hub.
+The desktop runs one local collector and starts a headless agent on each remote
+computer through an existing trusted SSH alias. Newline-delimited JSON snapshots
+flow through those persistent SSH sessions. Remote agents listen on no ports and
+exit when their output pipe closes. The desktop closes SSH children on normal exit.
 
-Reuse existing LAN/VPN reachability without changing network settings. Transport,
-enrollment and authentication are implementation decisions still to validate.
-Prefer persistent authenticated connections, bounded messages, reconnect backoff
-and a small bounded buffer when the receiver is unavailable.
+An optional always-on collector/store on Zima is still planned. Current history
+collection requires the desktop to remain running.
+
+SSH uses batch authentication, strict known-host checking, bounded connection
+timeouts, keepalives and a ten-second retry delay. Node IDs and remote command
+paths are validated before process creation. No new credentials or enrollment
+service are introduced. Messages are limited to 512 KiB before parsing, and a
+bounded channel prevents receiver backlogs. Schema and node identity are checked.
 
 This project has its own state and lifecycle. Existing homelab services, including
 Codex Relay, are not repurposed or modified by repository initialization.
@@ -30,22 +34,29 @@ Codex Relay, are not repurposed or modified by repository initialization.
 
 - Linux: `/proc`, `/sys` and narrowly selected OS APIs.
 - NVIDIA: NVML where supported, with explicit unsupported-field handling.
-- macOS: system APIs and supported sensor interfaces; validate Apple Silicon
-  memory/GPU/power coverage before promising a particular field.
-- AI: separate adapters for the runtimes actually found on each node. Start with
-  loaded-model and resource observations, then add request-level performance.
+- macOS: sysinfo plus IOKit accelerator statistics and power-source APIs.
+  Accelerator dictionary keys are best-effort platform counters, not a stable
+  cross-version public telemetry contract. No privileged helper is used.
+- AI: Ollama `/api/ps` on node loopback, with a timeout and response size bound.
+  Process name matches identify candidates only; Python alone is not classified as AI.
 - External meters: optional adapters for whole-device power and energy.
 
 ## Storage and UI
 
-Use SQLite with batched writes, explicit retention and aggregated older history.
-Keep high-frequency data bounded, and keep per-process details out of the default
-fleet snapshot. Store receipt times alongside source collection times to support
-staleness and clock-skew diagnosis.
+SQLite uses WAL, a five-second persistence cadence, seven-day deletion and hourly
+checkpoint/pruning work. Each row holds compact CPU/memory/GPU/power summaries;
+process lists and full snapshots are not persisted. Each node keeps at most 720
+in-memory chart points. Source and receipt timestamps are separate; liveness uses
+a monotonic receipt clock. Older history aggregation remains planned.
 
-The UI has fleet, device, AI and history views. Do not add a browser runtime or
-web UI to the desktop. Rendering should wake for new data and user input; detailed
-queries and collection must remain outside the UI thread.
+Processes refresh every two seconds; disks, temperatures and Ollama every five
+seconds. Snapshot transmission and basic counters run at one-second intervals.
+The initial process list contains bounded CPU-heavy processes and AI name matches,
+not an exhaustive process census.
+
+The UI has fleet, overview, process, AI, disk, network and recent-history views.
+Rendering uses glow/OpenGL and one-second repaint scheduling, coalescing samples
+from different nodes. Collection, SSH and SQLite run outside the UI thread.
 
 ## References
 

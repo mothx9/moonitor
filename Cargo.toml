@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/moonitor-core"]
+members = ["crates/moonitor-core", "crates/moonitor-agent", "crates/moonitor-store", "crates/moonitor-desktop"]
 resolver = "3"
 
 [workspace.package]
@@ -10,6 +10,11 @@ publish = false
 
 [workspace.dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+anyhow = "1.0.104"
+moonitor-core = { path = "crates/moonitor-core" }
+moonitor-agent = { path = "crates/moonitor-agent" }
+moonitor-store = { path = "crates/moonitor-store" }
 
 [profile.release]
 lto = "thin"

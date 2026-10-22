@@ -1,0 +1,33 @@
+# SSH aliases use your existing ~/.ssh/config. No credentials are stored here.
+[[nodes]]
+id = "macbook"
+label = "MacBook Pro"
+kind = "local"
+note = "Apple Silicon / memoria unificata"
+
+[[nodes]]
+id = "exon"
+label = "Exon"
+kind = "ssh"
+ssh_alias = "exon-vpn"
+note = "Workstation / NVIDIA"
+
+[[nodes]]
+id = "spark"
+label = "DGX Spark"
+kind = "ssh"
+ssh_alias = "spark-vpn"
+note = "GB10 / memoria unificata"
+
+[[nodes]]
+id = "zima"
+label = "Zima"
+kind = "ssh"
+ssh_alias = "zima-vpn"
+note = "Homelab node"
+
+[[nodes]]
+id = "iphone"
+label = "iPhone"
+kind = "unavailable"
+note = "Dispositivo censito. Telemetria iOS non collegata."

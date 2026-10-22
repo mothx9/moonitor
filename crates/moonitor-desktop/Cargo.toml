@@ -1,0 +1,21 @@
+[package]
+name = "moonitor-desktop"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "moonitor"
+path = "src/main.rs"
+
+[dependencies]
+moonitor-core.workspace = true
+moonitor-agent.workspace = true
+moonitor-store.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+toml = "1.1.6"
+eframe = { version = "0.37.0", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
+image = { version = "0.25.10", default-features = false, features = ["png"] }

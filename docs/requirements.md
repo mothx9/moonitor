@@ -6,6 +6,19 @@ moonitor is a complete homelab system monitor with a local desktop UI. Local AI
 is a primary use case. The initial desktop target is the MacBook; Linux desktop
 support should share the same Rust application.
 
+## Updated visual direction
+
+After reviewing the first functional UI, the user requested a much more refined,
+modern, minimal interface with 3D elements. The existing desktop is a technical
+baseline rather than the accepted final visual design. Iced + wgpu is the current
+selected stack for the upcoming custom UI and integrated 3D; GPUI and egui + wgpu were also
+evaluated. No framework migration or 3D implementation is claimed yet.
+
+The user selected a restrained 3D scene containing all five devices. The design
+should use clear typography, restrained materials and lighting, device-focused
+interaction, and demand-driven animation. It must look and behave as a professional
+desktop product.
+
 ## Monitoring coverage
 
 1. Fleet: node status, last successful observation, LAN/VPN connectivity and stale data.
