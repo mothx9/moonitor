@@ -1,23 +1,13 @@
 //! A small native mesh renderer. Geometry is uploaded once; only the camera and
 //! selection uniforms change. No game loop, asset service, or web runtime.
-use crate::ui::Message;
+use crate::{config::VisualKind, ui::Message, view_model::DeviceSceneModel};
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
 use iced::wgpu;
 use iced::{Rectangle, mouse, widget::shader};
-use std::sync::{
-    Arc, OnceLock,
-    atomic::{AtomicBool, AtomicU64, Ordering},
-};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use wgpu::util::DeviceExt;
 
-const ANCHORS: [[f32; 3]; 5] = [
-    [-1.30, 0.0, 1.15],
-    [-2.0, 0.0, -1.1],
-    [0.15, 0.0, -0.85],
-    [2.1, 0.0, -0.40],
-    [1.35, 0.0, 1.40],
-];
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Camera {
     pub yaw: f32,
@@ -31,17 +21,30 @@ impl Default for Camera {
         }
     }
 }
-fn camera(camera: Camera, aspect: f32) -> Mat4 {
+fn camera(camera: Camera, aspect: f32, devices: &[DeviceSceneModel]) -> Mat4 {
     let eye = Vec3::new(camera.yaw.sin() * 11.0, 8.3, camera.yaw.cos() * 11.0);
     let view = Mat4::look_at_rh(eye, Vec3::new(0.0, 0.30, 0.0), Vec3::Y);
-    let h = 2.55 / camera.zoom;
+    let mut h: f32 = 1.5;
+    for device in devices {
+        for x in [-1.05, 1.05] {
+            for y in [0.0, 1.9] {
+                for z in [-0.9, 0.9] {
+                    let p = view
+                        .transform_point3(Vec3::from_array(device.position) + Vec3::new(x, y, z));
+                    h = h.max(p.y.abs()).max(p.x.abs() / aspect.max(0.1));
+                }
+            }
+        }
+    }
+    let h = h * 1.12 / camera.zoom;
     Mat4::orthographic_rh(-h * aspect, h * aspect, -h, h, 0.1, 40.0) * view
 }
 #[derive(Debug, Clone)]
 pub struct Scene {
-    pub selected: usize,
-    pub live: [bool; 5],
+    pub selected: Option<String>,
+    pub devices: Vec<DeviceSceneModel>,
     pub camera: Camera,
+    pub dark: bool,
 }
 #[derive(Default)]
 pub struct Interaction {
@@ -89,28 +92,31 @@ impl shader::Program<Message> for Scene {
                 if !state.dragged
                     && let Some(p) = cursor.position_in(bounds)
                 {
-                    let inv = camera(self.camera, bounds.width / bounds.height).inverse();
+                    let inv =
+                        camera(self.camera, bounds.width / bounds.height, &self.devices).inverse();
                     let x = p.x / bounds.width * 2.0 - 1.0;
                     let y = 1.0 - p.y / bounds.height * 2.0;
                     let origin = inv.project_point3(Vec3::new(x, y, 0.0));
                     let direction = (inv.project_point3(Vec3::new(x, y, 1.0)) - origin).normalize();
-                    let picked = ANCHORS
+                    let picked = self
+                        .devices
                         .iter()
-                        .enumerate()
-                        .filter_map(|(i, a)| {
-                            let center =
-                                Vec3::from_array(*a) + Vec3::Y * if i == 1 { 0.9 } else { 0.4 };
-                            let half = if i == 1 {
+                        .filter_map(|d| {
+                            let tall = d.kind == VisualKind::Tower;
+                            let center = Vec3::from_array(d.position)
+                                + Vec3::Y * if tall { 0.9 } else { 0.4 };
+                            let half = if tall {
                                 Vec3::new(0.6, 1.0, 0.65)
                             } else {
                                 Vec3::new(0.9, 0.65, 0.85)
                             };
-                            ray_box(origin, direction, center - half, center + half).map(|d| (i, d))
+                            ray_box(origin, direction, center - half, center + half)
+                                .map(|distance| (d, distance))
                         })
-                        .min_by(|a, b| a.1.total_cmp(&b.1))
-                        .map(|p| p.0);
-                    return picked
-                        .map(|i| shader::Action::publish(Message::SceneSelect(i)).and_capture());
+                        .min_by(|a, b| a.1.total_cmp(&b.1));
+                    return picked.map(|(d, _)| {
+                        shader::Action::publish(Message::Select(d.id.clone())).and_capture()
+                    });
                 }
                 Some(shader::Action::capture())
             }
@@ -157,11 +163,13 @@ struct Uniform {
     light: [[f32; 4]; 4],
     eye: [f32; 4],
     state: [f32; 4],
+    nodes: [[f32; 4]; 32],
 }
 #[derive(Debug)]
 pub struct ScenePrimitive(Scene);
 pub struct ScenePipeline {
     mesh: wgpu::Buffer,
+    layout: Vec<(String, VisualKind, [f32; 3])>,
     count: u32,
     uniform: wgpu::Buffer,
     bind: wgpu::BindGroup,
@@ -179,6 +187,7 @@ pub struct ScenePipeline {
     dirty: AtomicBool,
     shadow_ready: AtomicBool,
     scene_passes: AtomicU64,
+    shadow_passes: AtomicU64,
     compositions: AtomicU64,
 }
 struct Targets {
@@ -190,10 +199,10 @@ struct Targets {
 }
 impl shader::Pipeline for ScenePipeline {
     fn new(device: &wgpu::Device, _: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
-        let vertices = geometry();
+        let vertices = geometry(&[]);
         let mesh = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("moonitor static device meshes"),
-            contents: bytemuck::cast_slice(vertices),
+            contents: bytemuck::cast_slice(&vertices),
             usage: wgpu::BufferUsages::VERTEX,
         });
         let uniform = device.create_buffer(&wgpu::BufferDescriptor {
@@ -425,6 +434,7 @@ impl shader::Pipeline for ScenePipeline {
         });
         Self {
             mesh,
+            layout: Vec::new(),
             count: vertices.len() as u32,
             uniform,
             bind,
@@ -442,6 +452,7 @@ impl shader::Pipeline for ScenePipeline {
             dirty: AtomicBool::new(true),
             shadow_ready: AtomicBool::new(false),
             scene_passes: AtomicU64::new(0),
+            shadow_passes: AtomicU64::new(0),
             compositions: AtomicU64::new(0),
         }
     }
@@ -456,6 +467,24 @@ impl shader::Primitive for ScenePrimitive {
         bounds: &Rectangle,
         viewport: &shader::Viewport,
     ) {
+        let layout = self
+            .0
+            .devices
+            .iter()
+            .map(|d| (d.id.clone(), d.kind, d.position))
+            .collect::<Vec<_>>();
+        if p.layout != layout {
+            let vertices = geometry(&self.0.devices);
+            p.mesh = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("fleet meshes"),
+                contents: bytemuck::cast_slice(&vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+            p.count = vertices.len() as u32;
+            p.layout = layout;
+            p.dirty.store(true, Ordering::Relaxed);
+            p.shadow_ready.store(false, Ordering::Relaxed);
+        }
         let scale = viewport.scale_factor();
         let w = (bounds.width * scale).round().max(1.0) as u32;
         let h = (bounds.height * scale).round().max(1.0) as u32;
@@ -516,20 +545,32 @@ impl shader::Primitive for ScenePrimitive {
             bounds.width * scale,
             bounds.height * scale,
         ];
-        let light = Mat4::orthographic_rh(-7.0, 7.0, -7.0, 7.0, 0.1, 30.0)
-            * Mat4::look_at_rh(Vec3::new(-3.0, 9.0, 5.0), Vec3::ZERO, Vec3::Y);
-        let live = self
-            .0
-            .live
-            .iter()
-            .enumerate()
-            .fold(0u32, |bits, (i, v)| bits | ((*v as u32) << i));
+        let extent = extent(&self.0.devices);
+        let light = Mat4::orthographic_rh(
+            -extent * 1.5,
+            extent * 1.5,
+            -extent * 1.5,
+            extent * 1.5,
+            0.1,
+            80.0,
+        ) * Mat4::look_at_rh(Vec3::new(-12.0, 36.0, 20.0), Vec3::ZERO, Vec3::Y);
+        let mut nodes = [[0.0; 4]; 32];
+        for (i, d) in self.0.devices.iter().take(32).enumerate() {
+            let color = d.status.color();
+            nodes[i] = [
+                color[0],
+                color[1],
+                color[2],
+                f32::from(self.0.selected.as_deref() == Some(&d.id)),
+            ];
+        }
         let c = self.0.camera;
         let u = Uniform {
-            camera: camera(c, bounds.width / bounds.height).to_cols_array_2d(),
+            camera: camera(c, bounds.width / bounds.height, &self.0.devices).to_cols_array_2d(),
             light: light.to_cols_array_2d(),
             eye: [c.yaw.sin() * 11.0, 8.3, c.yaw.cos() * 11.0, 1.0],
-            state: [self.0.selected as f32, live as f32, 0.0, 0.0],
+            state: [f32::from(self.0.dark), 0.0, 0.0, 0.0],
+            nodes,
         };
         if p.last_uniform != Some(u) {
             queue.write_buffer(&p.uniform, 0, bytemuck::bytes_of(&u));
@@ -546,6 +587,7 @@ impl shader::Primitive for ScenePrimitive {
     ) {
         let Some(t) = &p.targets else { return };
         if !p.shadow_ready.swap(true, Ordering::Relaxed) {
+            p.shadow_passes.fetch_add(1, Ordering::Relaxed);
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("shadow"),
                 color_attachments: &[],
@@ -562,7 +604,7 @@ impl shader::Primitive for ScenePrimitive {
             pass.set_pipeline(&p.shadow_pipeline);
             pass.set_bind_group(0, &p.shadow_bind, &[]);
             pass.set_vertex_buffer(0, p.mesh.slice(..));
-            pass.draw(0..p.count, 0..1);
+            pass.draw(6..p.count, 0..1);
         }
         if p.dirty.swap(false, Ordering::Relaxed) {
             p.scene_passes.fetch_add(1, Ordering::Relaxed);
@@ -631,7 +673,7 @@ impl Drop for ScenePipeline {
             eprintln!(
                 "moonitor-renderer: scene_passes={} shadow_passes={} compositions={} vertices={}",
                 self.scene_passes.load(Ordering::Relaxed),
-                u8::from(self.shadow_ready.load(Ordering::Relaxed)),
+                self.shadow_passes.load(Ordering::Relaxed),
                 self.compositions.load(Ordering::Relaxed),
                 self.count
             );
@@ -770,308 +812,419 @@ impl Mesh {
         }
     }
 }
-fn geometry() -> &'static [Vertex] {
-    static MESH: OnceLock<Arc<[Vertex]>> = OnceLock::new();
-    MESH.get_or_init(|| {
-        let mut m = Mesh {
-            vertices: vec![],
-            node: -1.0,
-            origin: Vec3::ZERO,
-            rotation: Mat4::IDENTITY,
-        };
-        m.quad(
-            [
-                Vec3::new(-30.0, -0.015, 30.0),
-                Vec3::new(30.0, -0.015, 30.0),
-                Vec3::new(30.0, -0.015, -30.0),
-                Vec3::new(-30.0, -0.015, -30.0),
-            ],
-            Vec3::Y,
-            [0.94, 0.95, 0.93],
-            1.0,
-            3.0,
+fn geometry(devices: &[DeviceSceneModel]) -> Vec<Vertex> {
+    let mut m = Mesh {
+        vertices: vec![],
+        node: -1.0,
+        origin: Vec3::ZERO,
+        rotation: Mat4::IDENTITY,
+    };
+    m.quad(
+        [
+            Vec3::new(-30.0, -0.015, 30.0),
+            Vec3::new(30.0, -0.015, 30.0),
+            Vec3::new(30.0, -0.015, -30.0),
+            Vec3::new(-30.0, -0.015, -30.0),
+        ],
+        Vec3::Y,
+        [0.94, 0.95, 0.93],
+        1.0,
+        3.0,
+    );
+    for (id, device) in devices.iter().enumerate() {
+        m.node = id as f32;
+        m.origin = Vec3::from_array(device.position);
+        m.rotation = Mat4::IDENTITY;
+        m.cylinder(
+            Vec3::ZERO,
+            if device.kind == VisualKind::Laptop {
+                1.02
+            } else {
+                0.83
+            },
+            0.045,
+            [0.82, 0.85, 0.81],
+            2.0,
         );
-        for (id, a) in ANCHORS.iter().enumerate() {
-            m.node = id as f32;
-            m.origin = Vec3::from_array(*a);
-            m.rotation = Mat4::IDENTITY;
-            m.cylinder(
-                Vec3::ZERO,
-                if id == 0 { 1.02 } else { 0.83 },
-                0.045,
-                [0.82, 0.85, 0.81],
-                2.0,
-            );
-            m.origin.y = 0.055;
-            let silver = [0.64, 0.69, 0.70];
-            let black = [0.09, 0.12, 0.13];
-            let glass = [0.035, 0.065, 0.07];
-            let green = [0.53, 0.84, 0.64];
-            match id {
-                0 => {
-                    // MacBook, open lid, keyboard and trackpad.
-                    m.rotation = Mat4::from_rotation_y(-0.12);
-                    m.box3(
-                        Vec3::new(0.0, 0.06, 0.0),
-                        Vec3::new(1.52, 0.10, 1.02),
-                        0.035,
-                        silver,
-                        0.25,
-                        0.0,
-                    );
-                    m.box3(
-                        Vec3::new(0.0, 0.115, -0.16),
-                        Vec3::new(1.29, 0.012, 0.42),
-                        0.004,
-                        black,
-                        0.8,
-                        0.0,
-                    );
-                    for row in 0..4 {
-                        for col in 0..13 {
-                            m.box3(
-                                Vec3::new(
-                                    -0.58 + col as f32 * 0.096,
-                                    0.127,
-                                    -0.31 + row as f32 * 0.095,
-                                ),
-                                Vec3::new(0.078, 0.009, 0.072),
-                                0.0,
-                                [0.20, 0.23, 0.24],
-                                0.6,
-                                0.0,
-                            );
-                        }
-                    }
-                    m.box3(
-                        Vec3::new(0.0, 0.116, 0.29),
-                        Vec3::new(0.53, 0.01, 0.26),
-                        0.008,
-                        [0.58, 0.64, 0.65],
-                        0.4,
-                        0.0,
-                    );
-                    let base = m.origin;
-                    m.origin += m.rotation.transform_vector3(Vec3::new(0.0, 0.13, -0.46));
-                    m.rotation *= Mat4::from_rotation_x(-0.20);
-                    m.box3(
-                        Vec3::new(0.0, 0.48, 0.0),
-                        Vec3::new(1.52, 0.96, 0.055),
-                        0.035,
-                        silver,
-                        0.25,
-                        0.0,
-                    );
-                    m.box3(
-                        Vec3::new(0.0, 0.49, 0.031),
-                        Vec3::new(1.39, 0.81, 0.008),
-                        0.012,
-                        glass,
-                        0.1,
-                        0.0,
-                    );
-                    m.box3(
-                        Vec3::new(-0.27, 0.48, 0.039),
-                        Vec3::new(0.63, 0.33, 0.004),
-                        0.0,
-                        [0.15, 0.39, 0.37],
-                        0.4,
-                        1.0,
-                    );
-                    m.box3(
-                        Vec3::new(0.33, 0.48, 0.040),
-                        Vec3::new(0.44, 0.33, 0.004),
-                        0.0,
-                        [0.25, 0.54, 0.46],
-                        0.4,
-                        1.0,
-                    );
-                    m.origin = base;
-                }
-                1 => {
-                    // Exon workstation, perforated front and side panel.
-                    m.rotation = Mat4::from_rotation_y(0.12);
-                    m.box3(
-                        Vec3::new(0.0, 0.93, 0.0),
-                        Vec3::new(0.79, 1.82, 0.98),
-                        0.055,
-                        [0.12, 0.15, 0.16],
-                        0.55,
-                        0.0,
-                    );
-                    m.box3(
-                        Vec3::new(0.0, 0.94, 0.502),
-                        Vec3::new(0.65, 1.62, 0.025),
-                        0.018,
-                        [0.07, 0.10, 0.11],
-                        0.9,
-                        0.0,
-                    );
-                    for row in 0..20 {
-                        for col in 0..6 {
-                            m.box3(
-                                Vec3::new(
-                                    -0.245 + col as f32 * 0.098,
-                                    0.26 + row as f32 * 0.066,
-                                    0.522,
-                                ),
-                                Vec3::new(0.052, 0.018, 0.005),
-                                0.0,
-                                [0.21, 0.26, 0.27],
-                                0.9,
-                                0.0,
-                            );
-                        }
-                    }
-                    m.box3(
-                        Vec3::new(0.405, 0.96, 0.0),
-                        Vec3::new(0.013, 1.49, 0.78),
-                        0.003,
-                        [0.16, 0.21, 0.22],
-                        0.2,
-                        0.0,
-                    );
-                    m.box3(
-                        Vec3::new(0.0, 1.74, 0.52),
-                        Vec3::new(0.11, 0.018, 0.006),
-                        0.0,
-                        green,
-                        0.2,
-                        1.0,
-                    );
-                }
-                2 => {
-                    // DGX Spark: compact champagne metal chassis with fins.
-                    m.rotation = Mat4::from_rotation_y(-0.08);
-                    m.box3(
-                        Vec3::new(0.0, 0.25, 0.0),
-                        Vec3::new(1.14, 0.42, 1.09),
-                        0.055,
-                        [0.63, 0.58, 0.46],
-                        0.35,
-                        0.0,
-                    );
-                    m.box3(
-                        Vec3::new(0.0, 0.472, 0.0),
-                        Vec3::new(0.95, 0.014, 0.89),
-                        0.007,
-                        [0.76, 0.71, 0.59],
-                        0.35,
-                        0.0,
-                    );
-                    for i in 0..17 {
+        m.origin.y = 0.055;
+        let silver = [0.64, 0.69, 0.70];
+        let black = [0.09, 0.12, 0.13];
+        let glass = [0.035, 0.065, 0.07];
+        let green = [0.53, 0.84, 0.64];
+        match device.kind {
+            VisualKind::Laptop => {
+                // MacBook, open lid, keyboard and trackpad.
+                m.rotation = Mat4::from_rotation_y(-0.12);
+                m.box3(
+                    Vec3::new(0.0, 0.06, 0.0),
+                    Vec3::new(1.52, 0.10, 1.02),
+                    0.035,
+                    silver,
+                    0.25,
+                    0.0,
+                );
+                m.box3(
+                    Vec3::new(0.0, 0.115, -0.16),
+                    Vec3::new(1.29, 0.012, 0.42),
+                    0.004,
+                    black,
+                    0.8,
+                    0.0,
+                );
+                for row in 0..4 {
+                    for col in 0..13 {
                         m.box3(
-                            Vec3::new(-0.46 + i as f32 * 0.057, 0.29, 0.554),
-                            Vec3::new(0.018, 0.19, 0.01),
+                            Vec3::new(
+                                -0.58 + col as f32 * 0.096,
+                                0.127,
+                                -0.31 + row as f32 * 0.095,
+                            ),
+                            Vec3::new(0.078, 0.009, 0.072),
                             0.0,
-                            [0.19, 0.19, 0.15],
+                            [0.20, 0.23, 0.24],
+                            0.6,
+                            0.0,
+                        );
+                    }
+                }
+                m.box3(
+                    Vec3::new(0.0, 0.116, 0.29),
+                    Vec3::new(0.53, 0.01, 0.26),
+                    0.008,
+                    [0.58, 0.64, 0.65],
+                    0.4,
+                    0.0,
+                );
+                let base = m.origin;
+                m.origin += m.rotation.transform_vector3(Vec3::new(0.0, 0.13, -0.46));
+                m.rotation *= Mat4::from_rotation_x(-0.20);
+                m.box3(
+                    Vec3::new(0.0, 0.48, 0.0),
+                    Vec3::new(1.52, 0.96, 0.055),
+                    0.035,
+                    silver,
+                    0.25,
+                    0.0,
+                );
+                m.box3(
+                    Vec3::new(0.0, 0.49, 0.031),
+                    Vec3::new(1.39, 0.81, 0.008),
+                    0.012,
+                    glass,
+                    0.1,
+                    0.0,
+                );
+                m.box3(
+                    Vec3::new(-0.27, 0.48, 0.039),
+                    Vec3::new(0.63, 0.33, 0.004),
+                    0.0,
+                    [0.15, 0.39, 0.37],
+                    0.4,
+                    1.0,
+                );
+                m.box3(
+                    Vec3::new(0.33, 0.48, 0.040),
+                    Vec3::new(0.44, 0.33, 0.004),
+                    0.0,
+                    [0.25, 0.54, 0.46],
+                    0.4,
+                    1.0,
+                );
+                m.origin = base;
+            }
+            VisualKind::Tower => {
+                // Exon workstation, perforated front and side panel.
+                m.rotation = Mat4::from_rotation_y(0.12);
+                m.box3(
+                    Vec3::new(0.0, 0.93, 0.0),
+                    Vec3::new(0.79, 1.82, 0.98),
+                    0.055,
+                    [0.12, 0.15, 0.16],
+                    0.55,
+                    0.0,
+                );
+                m.box3(
+                    Vec3::new(0.0, 0.94, 0.502),
+                    Vec3::new(0.65, 1.62, 0.025),
+                    0.018,
+                    [0.07, 0.10, 0.11],
+                    0.9,
+                    0.0,
+                );
+                for row in 0..20 {
+                    for col in 0..6 {
+                        m.box3(
+                            Vec3::new(
+                                -0.245 + col as f32 * 0.098,
+                                0.26 + row as f32 * 0.066,
+                                0.522,
+                            ),
+                            Vec3::new(0.052, 0.018, 0.005),
+                            0.0,
+                            [0.21, 0.26, 0.27],
                             0.9,
                             0.0,
                         );
                     }
+                }
+                m.box3(
+                    Vec3::new(0.405, 0.96, 0.0),
+                    Vec3::new(0.013, 1.49, 0.78),
+                    0.003,
+                    [0.16, 0.21, 0.22],
+                    0.2,
+                    0.0,
+                );
+                m.box3(
+                    Vec3::new(0.0, 1.74, 0.52),
+                    Vec3::new(0.11, 0.018, 0.006),
+                    0.0,
+                    green,
+                    0.2,
+                    1.0,
+                );
+            }
+            VisualKind::Compact => {
+                // DGX Spark: compact champagne metal chassis with fins.
+                m.rotation = Mat4::from_rotation_y(-0.08);
+                m.box3(
+                    Vec3::new(0.0, 0.25, 0.0),
+                    Vec3::new(1.14, 0.42, 1.09),
+                    0.055,
+                    [0.63, 0.58, 0.46],
+                    0.35,
+                    0.0,
+                );
+                m.box3(
+                    Vec3::new(0.0, 0.472, 0.0),
+                    Vec3::new(0.95, 0.014, 0.89),
+                    0.007,
+                    [0.76, 0.71, 0.59],
+                    0.35,
+                    0.0,
+                );
+                for i in 0..17 {
                     m.box3(
-                        Vec3::new(0.34, 0.13, 0.56),
-                        Vec3::new(0.045, 0.012, 0.006),
+                        Vec3::new(-0.46 + i as f32 * 0.057, 0.29, 0.554),
+                        Vec3::new(0.018, 0.19, 0.01),
                         0.0,
-                        green,
-                        0.2,
-                        1.0,
-                    );
-                    m.box3(
-                        Vec3::new(0.0, 0.484, 0.0),
-                        Vec3::new(0.21, 0.008, 0.21),
-                        0.008,
-                        [0.22, 0.25, 0.17],
-                        0.5,
+                        [0.19, 0.19, 0.15],
+                        0.9,
                         0.0,
                     );
                 }
-                3 => {
-                    // Zima board with heatsink, ports and visible circuit board.
-                    m.rotation = Mat4::from_rotation_y(-0.20);
+                m.box3(
+                    Vec3::new(0.34, 0.13, 0.56),
+                    Vec3::new(0.045, 0.012, 0.006),
+                    0.0,
+                    green,
+                    0.2,
+                    1.0,
+                );
+                m.box3(
+                    Vec3::new(0.0, 0.484, 0.0),
+                    Vec3::new(0.21, 0.008, 0.21),
+                    0.008,
+                    [0.22, 0.25, 0.17],
+                    0.5,
+                    0.0,
+                );
+            }
+            VisualKind::Board => {
+                // Zima board with heatsink, ports and visible circuit board.
+                m.rotation = Mat4::from_rotation_y(-0.20);
+                m.box3(
+                    Vec3::new(0.0, 0.105, 0.0),
+                    Vec3::new(1.18, 0.08, 0.79),
+                    0.025,
+                    [0.10, 0.24, 0.20],
+                    0.7,
+                    0.0,
+                );
+                m.box3(
+                    Vec3::new(0.0, 0.20, -0.04),
+                    Vec3::new(0.80, 0.17, 0.56),
+                    0.015,
+                    [0.25, 0.31, 0.30],
+                    0.45,
+                    0.0,
+                );
+                for i in 0..13 {
                     m.box3(
-                        Vec3::new(0.0, 0.105, 0.0),
-                        Vec3::new(1.18, 0.08, 0.79),
-                        0.025,
-                        [0.10, 0.24, 0.20],
-                        0.7,
+                        Vec3::new(-0.38 + i as f32 * 0.064, 0.33, -0.04),
+                        Vec3::new(0.027, 0.15, 0.56),
                         0.0,
-                    );
-                    m.box3(
-                        Vec3::new(0.0, 0.20, -0.04),
-                        Vec3::new(0.80, 0.17, 0.56),
-                        0.015,
-                        [0.25, 0.31, 0.30],
+                        [0.46, 0.53, 0.51],
                         0.45,
                         0.0,
                     );
-                    for i in 0..13 {
-                        m.box3(
-                            Vec3::new(-0.38 + i as f32 * 0.064, 0.33, -0.04),
-                            Vec3::new(0.027, 0.15, 0.56),
-                            0.0,
-                            [0.46, 0.53, 0.51],
-                            0.45,
-                            0.0,
-                        );
-                    }
-                    for i in 0..3 {
-                        m.box3(
-                            Vec3::new(-0.36 + i as f32 * 0.32, 0.21, 0.35),
-                            Vec3::new(0.24, 0.20, 0.16),
-                            0.012,
-                            silver,
-                            0.4,
-                            0.0,
-                        );
-                        m.box3(
-                            Vec3::new(-0.36 + i as f32 * 0.32, 0.21, 0.438),
-                            Vec3::new(0.17, 0.11, 0.012),
-                            0.0,
-                            black,
-                            0.8,
-                            0.0,
-                        );
-                    }
                 }
-                _ => {
-                    // iPhone glass slab, elevated enough for readable silhouette.
-                    m.rotation = Mat4::from_rotation_y(-0.25) * Mat4::from_rotation_x(-0.12);
+                for i in 0..3 {
                     m.box3(
-                        Vec3::new(0.0, 0.14, 0.0),
-                        Vec3::new(0.63, 0.095, 1.22),
-                        0.045,
-                        [0.21, 0.25, 0.27],
-                        0.25,
-                        0.0,
-                    );
-                    m.box3(
-                        Vec3::new(0.0, 0.191, 0.0),
-                        Vec3::new(0.57, 0.012, 1.14),
-                        0.04,
-                        glass,
-                        0.08,
-                        0.0,
-                    );
-                    m.box3(
-                        Vec3::new(0.0, 0.200, 0.04),
-                        Vec3::new(0.48, 0.005, 0.80),
-                        0.035,
-                        [0.18, 0.29, 0.30],
-                        0.5,
-                        0.0,
-                    );
-                    m.box3(
-                        Vec3::new(0.0, 0.201, -0.47),
-                        Vec3::new(0.22, 0.006, 0.058),
-                        0.022,
-                        black,
+                        Vec3::new(-0.36 + i as f32 * 0.32, 0.21, 0.35),
+                        Vec3::new(0.24, 0.20, 0.16),
+                        0.012,
+                        silver,
                         0.4,
+                        0.0,
+                    );
+                    m.box3(
+                        Vec3::new(-0.36 + i as f32 * 0.32, 0.21, 0.438),
+                        Vec3::new(0.17, 0.11, 0.012),
+                        0.0,
+                        black,
+                        0.8,
                         0.0,
                     );
                 }
             }
+            VisualKind::Phone => {
+                // iPhone glass slab, elevated enough for readable silhouette.
+                m.rotation = Mat4::from_rotation_y(-0.25) * Mat4::from_rotation_x(-0.12);
+                m.box3(
+                    Vec3::new(0.0, 0.14, 0.0),
+                    Vec3::new(0.63, 0.095, 1.22),
+                    0.045,
+                    [0.21, 0.25, 0.27],
+                    0.25,
+                    0.0,
+                );
+                m.box3(
+                    Vec3::new(0.0, 0.191, 0.0),
+                    Vec3::new(0.57, 0.012, 1.14),
+                    0.04,
+                    glass,
+                    0.08,
+                    0.0,
+                );
+                m.box3(
+                    Vec3::new(0.0, 0.200, 0.04),
+                    Vec3::new(0.48, 0.005, 0.80),
+                    0.035,
+                    [0.18, 0.29, 0.30],
+                    0.5,
+                    0.0,
+                );
+                m.box3(
+                    Vec3::new(0.0, 0.201, -0.47),
+                    Vec3::new(0.22, 0.006, 0.058),
+                    0.022,
+                    black,
+                    0.4,
+                    0.0,
+                );
+            }
         }
-        m.vertices.into()
-    })
+    }
+    m.vertices
+}
+
+fn extent(devices: &[DeviceSceneModel]) -> f32 {
+    devices
+        .iter()
+        .map(|d| d.position[0].abs().max(d.position[2].abs()) + 2.0)
+        .fold(2.4, f32::max)
+        * 1.25
+}
+
+impl iced::widget::canvas::Program<Message> for Scene {
+    type State = ();
+    fn draw(
+        &self,
+        _: &(),
+        renderer: &iced::Renderer,
+        _: &iced::Theme,
+        bounds: Rectangle,
+        _: mouse::Cursor,
+    ) -> Vec<iced::widget::canvas::Geometry> {
+        use iced::widget::canvas;
+        let mut frame = canvas::Frame::new(renderer, bounds.size());
+        let matrix = camera(self.camera, bounds.width / bounds.height, &self.devices);
+        for (i, d) in self.devices.iter().enumerate() {
+            let p = matrix.project_point3(
+                Vec3::from_array(d.position)
+                    + Vec3::new(
+                        0.0,
+                        if d.kind == VisualKind::Tower {
+                            2.0
+                        } else {
+                            1.15
+                        },
+                        0.0,
+                    ),
+            );
+            let label = if self.devices.len() > 16 {
+                format!("{:02}", i + 1)
+            } else {
+                format!("{:02} {}", i + 1, d.label)
+            };
+            frame.fill_text(canvas::Text {
+                content: label,
+                position: iced::Point::new(
+                    (p.x + 1.0) * bounds.width / 2.0,
+                    (1.0 - p.y) * bounds.height / 2.0,
+                ),
+                color: if self.dark {
+                    iced::Color::from_rgb(0.918, 0.949, 0.925)
+                } else {
+                    iced::Color::from_rgb(0.10, 0.15, 0.14)
+                },
+                size: 11.0.into(),
+                align_x: iced::alignment::Horizontal::Center.into(),
+                ..Default::default()
+            });
+        }
+        vec![frame.into_geometry()]
+    }
+}
+#[cfg(test)]
+impl Scene {
+    pub fn test_device_point(&self, index: usize, size: iced::Size) -> iced::Point {
+        let d = &self.devices[index];
+        let p = camera(self.camera, size.width / size.height, &self.devices)
+            .project_point3(Vec3::from_array(d.position) + Vec3::Y * 0.5);
+        iced::Point::new(
+            (p.x + 1.0) * size.width / 2.0,
+            (1.0 - p.y) * size.height / 2.0,
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::view_model::NodeStatus;
+    #[test]
+    fn mesh_contains_exact_fleet_ids_and_finite_geometry() {
+        for count in [0, 1, 2, 5, 16, 32] {
+            let devices = (0..count)
+                .map(|i| DeviceSceneModel {
+                    id: format!("test-{i}"),
+                    label: format!("Test {i}"),
+                    kind: [
+                        VisualKind::Laptop,
+                        VisualKind::Tower,
+                        VisualKind::Compact,
+                        VisualKind::Board,
+                        VisualKind::Phone,
+                    ][i % 5],
+                    status: NodeStatus::Uninstrumented,
+                    position: [i as f32 * 2.6, 0.0, 0.0],
+                })
+                .collect::<Vec<_>>();
+            let vertices = geometry(&devices);
+            let ids = vertices
+                .iter()
+                .filter(|v| v.material[0] >= 0.0)
+                .map(|v| v.material[0] as usize)
+                .collect::<std::collections::BTreeSet<_>>();
+            assert_eq!(ids, (0..count).collect());
+            assert!(vertices.iter().all(|v| {
+                v.position
+                    .iter()
+                    .chain(v.normal.iter())
+                    .all(|n| n.is_finite())
+            }));
+        }
+    }
 }

@@ -1,4 +1,4 @@
-struct Uniforms { camera: mat4x4<f32>, light: mat4x4<f32>, eye:vec4<f32>, state:vec4<f32> }
+struct Uniforms { camera: mat4x4<f32>, light: mat4x4<f32>, eye:vec4<f32>, state:vec4<f32>, nodes:array<vec4<f32>,32> }
 @group(0) @binding(0) var<uniform> u: Uniforms;
 @group(0) @binding(1) var shadow_map:texture_depth_2d;
 @group(0) @binding(2) var shadow_sampler:sampler_comparison;
@@ -19,14 +19,17 @@ struct Output { @builtin(position) position:vec4<f32>, @location(0) world:vec3<f
     let hemi=0.36+0.30*(n.y*0.5+0.5);
     let spec=pow(max(dot(n,h),0.0),mix(120.0,12.0,rough))*(1.0-rough)*0.4;
     var base=pow(v.color.rgb,vec3(2.2));
-    if(v.material.z==2.0) {
-        if(abs(v.material.x-u.state.x)<0.1) {base=pow(vec3(0.52,0.73,0.60),vec3(2.2));}
+    if(v.material.x>=0.0) {
+        let node=u.nodes[min(u32(v.material.x),31u)];
+        if(v.material.z==2.0 || v.material.z==1.0) {
+            base=pow(mix(node.rgb,vec3(0.82,0.91,0.85),node.a*0.35),vec3(2.2));
+        }
     }
     var color=base*(hemi+diffuse*shade*0.48)+vec3(spec*shade);
     if(v.material.z==1.0) { color=base*0.85; }
     if(v.material.z==3.0) {
         // A quiet ground plane with real device shadows, no perpetual animation.
-        color=pow(vec3(0.95,0.956,0.938),vec3(2.2))*(0.89+0.11*shade);
+        color=pow(mix(vec3(0.95,0.956,0.938),vec3(0.09,0.14,0.11),u.state.x),vec3(2.2))*(0.89+0.11*shade);
     }
     return vec4(color,1.0);
 }

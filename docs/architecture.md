@@ -7,7 +7,7 @@
 | `moonitor-core` | Shared telemetry types and measurement semantics | Implemented |
 | `moonitor-agent` | Local platform collection and Ollama adapter | Implemented |
 | `moonitor-store` | SQLite summaries, seven-day retention and recent history | Implemented |
-| `moonitor-desktop` | Native Rust egui/eframe fleet and device UI | Implemented |
+| `moonitor-desktop` | Native Rust Iced/wgpu fleet and device UI | Implemented |
 
 The headless agent must not depend on the desktop rendering stack.
 
@@ -55,12 +55,19 @@ The initial process list contains bounded CPU-heavy processes and AI name matche
 not an exhaustive process census.
 
 The UI has fleet, overview, process, AI, disk, network and recent-history views.
-Rendering uses glow/OpenGL and one-second repaint scheduling, coalescing samples
-from different nodes. Collection, SSH and SQLite run outside the UI thread.
+Rendering uses Iced 0.14 and wgpu, with one-second state polling. Collection, SSH
+and SQLite run outside the UI thread. `view_model.rs` defines availability,
+ID selection, scene entities and typed percent metrics. `scene.rs` caches uploaded
+meshes until fleet identity/geometry changes; camera, selection and state invalidate
+the color pass, geometry invalidates shadows. There is no continuous animation.
+The list alternative removes the shader widget. GPU-free startup is not yet qualified.
+Ingress drops are counted and shown; schema-1 history still only stores summaries.
+
+See [W0 audit and target module boundaries](moonitor-w0-audit-and-plan.md).
 
 ## References
 
-- [egui repaint scheduling](https://docs.rs/egui/latest/egui/struct.Context.html)
+- [Iced 0.14](https://docs.rs/iced/0.14.0/iced/)
 - [NVIDIA Management Library](https://developer.nvidia.com/management-library-nvml)
 - [Spark memory reporting](https://nvidia.custhelp.com/app/answers/detail/a_id/5775/)
 - [Ollama loaded models](https://docs.ollama.com/api/ps)

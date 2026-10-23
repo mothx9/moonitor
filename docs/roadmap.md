@@ -1,3 +1,5 @@
+> Historical implementation sequence. The active roadmap is now [W0–W4](moonitor-w0-audit-and-plan.md), based on the [professional blueprint](moonitor-professional-upgrade-blueprint.md). Iced/wgpu migration is checkpointed; see [current qualification](moonitor-w0-qualification.md).
+
 # Implementation sequence
 
 ## 0. Repository foundation

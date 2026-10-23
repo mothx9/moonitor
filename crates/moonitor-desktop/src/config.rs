@@ -10,12 +10,25 @@ pub enum NodeKind {
     Unavailable,
 }
 
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum VisualKind {
+    Laptop,
+    Tower,
+    #[default]
+    Compact,
+    Board,
+    Phone,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NodeConfig {
     pub id: String,
     pub label: String,
     pub kind: NodeKind,
+    #[serde(default)]
+    pub visual_kind: VisualKind,
     pub ssh_alias: Option<String>,
     pub remote_agent: Option<String>,
     #[serde(default)]
@@ -49,6 +62,7 @@ impl Config {
                     id: "macbook".into(),
                     label: "This computer".into(),
                     kind: NodeKind::Local,
+                    visual_kind: VisualKind::default(),
                     ssh_alias: None,
                     remote_agent: None,
                     note: String::new(),
@@ -60,8 +74,8 @@ impl Config {
     }
 
     fn validate(&self) -> Result<()> {
-        if self.nodes.is_empty() || self.nodes.len() > 32 {
-            bail!("Configure between 1 and 32 nodes");
+        if self.nodes.len() > 32 {
+            bail!("Configure at most 32 nodes");
         }
         let mut ids = HashSet::new();
         let mut locals = 0;
@@ -112,6 +126,26 @@ mod tests {
         assert!(safe_id("spark-vpn"));
     }
     #[test]
+    fn empty_is_valid_but_oversized_fleets_are_not() {
+        assert!(Config { nodes: vec![] }.validate().is_ok());
+        let nodes = crate::fixtures::fleet(32)
+            .into_iter()
+            .map(|n| n.config)
+            .collect::<Vec<_>>();
+        assert!(
+            Config {
+                nodes: nodes.clone()
+            }
+            .validate()
+            .is_ok()
+        );
+        let mut too_many = nodes;
+        let mut extra = too_many[0].clone();
+        extra.id = "extra".into();
+        too_many.push(extra);
+        assert!(Config { nodes: too_many }.validate().is_err());
+    }
+    #[test]
     fn duplicate_ids_are_rejected() {
         let c = Config {
             nodes: vec![
@@ -119,6 +153,7 @@ mod tests {
                     id: "same".into(),
                     label: "One".into(),
                     kind: NodeKind::Local,
+                    visual_kind: VisualKind::default(),
                     ssh_alias: None,
                     remote_agent: None,
                     note: String::new()

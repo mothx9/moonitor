@@ -1,0 +1,15 @@
+#!/bin/sh
+# Renderer-specific candidates on first run; pixel comparisons on later runs.
+# Each viewport owns a process/device so large Vulkan snapshots release all allocations.
+set -eu
+cd "$(dirname "$0")/.."
+export MOONITOR_QA_DIR="${MOONITOR_QA_DIR:-$PWD/.local/qa/w0/visual}"
+mkdir -p "$MOONITOR_QA_DIR"
+MOONITOR_QA_CASE=fleet cargo test --locked -p moonitor-desktop ui::qa:: -- --ignored --test-threads=1
+for size in 1280x800 1440x900 3840x2160; do
+  for tab in overview ai history processes; do
+    for theme in light dark; do
+      MOONITOR_QA_CASE="$tab-$size-$theme" cargo test --locked -p moonitor-desktop ui::qa::visual_matrix_and_interactions -- --ignored --exact --test-threads=1
+    done
+  done
+done

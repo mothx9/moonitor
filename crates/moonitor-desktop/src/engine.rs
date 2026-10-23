@@ -9,7 +9,7 @@ use std::{
     process::{Child, Command, Stdio},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc,
     },
     thread,
@@ -29,17 +29,15 @@ pub struct NodeState {
 
 impl NodeState {
     pub fn live(&self) -> bool {
-        self.sample.is_some()
-            && self
-                .last_seen
-                .is_some_and(|t| t.elapsed() < Duration::from_secs(4))
-            && self.error.is_none()
+        crate::view_model::NodeStatus::of(self, Instant::now())
+            == crate::view_model::NodeStatus::Online
     }
 }
 
 pub struct State {
     pub nodes: Vec<NodeState>,
     pub storage_error: Option<String>,
+    pub dropped_events: Arc<AtomicU64>,
 }
 type ChildSlot = Arc<Mutex<Option<Child>>>;
 pub struct Engine {
@@ -56,6 +54,7 @@ impl Engine {
     pub fn start(config: Config, db_path: PathBuf) -> Self {
         let state = Arc::new(Mutex::new(State {
             storage_error: None,
+            dropped_events: Arc::new(AtomicU64::new(0)),
             nodes: config
                 .nodes
                 .iter()
@@ -68,6 +67,7 @@ impl Engine {
                 })
                 .collect(),
         }));
+        let dropped = state.lock().unwrap().dropped_events.clone();
         let stop = Arc::new(AtomicBool::new(false));
         let (tx, rx) = mpsc::sync_channel(16);
         let shared = state.clone();
@@ -158,6 +158,7 @@ impl Engine {
         for (index, node) in nodes.into_iter().enumerate() {
             let stopped = stop.clone();
             let sender = tx.clone();
+            let dropped = dropped.clone();
             match node.kind {
                 NodeKind::Local => {
                     thread::spawn(move || {
@@ -166,12 +167,11 @@ impl Engine {
                         while !stopped.load(Ordering::Relaxed) {
                             let tick = Instant::now();
                             let sample = Arc::new(collector.sample());
-                            let _ = sender.try_send(Event::Snapshot(
-                                index,
-                                sample,
-                                now_ms(),
-                                Instant::now(),
-                            ));
+                            enqueue(
+                                &sender,
+                                &dropped,
+                                Event::Snapshot(index, sample, now_ms(), Instant::now()),
+                            );
                             thread::sleep(Duration::from_secs(1).saturating_sub(tick.elapsed()));
                         }
                     });
@@ -181,15 +181,20 @@ impl Engine {
                     children.push(child.clone());
                     thread::spawn(move || {
                         while !stopped.load(Ordering::Relaxed) {
-                            let result = remote_stream(&node, index, &sender, &child, &stopped);
+                            let result =
+                                remote_stream(&node, index, &sender, &child, &stopped, &dropped);
                             if !stopped.load(Ordering::Relaxed) {
-                                let _ = sender.try_send(Event::Error(
-                                    index,
-                                    result
-                                        .err()
-                                        .map(|e| e.to_string())
-                                        .unwrap_or_else(|| "SSH stream ended".into()),
-                                ));
+                                enqueue(
+                                    &sender,
+                                    &dropped,
+                                    Event::Error(
+                                        index,
+                                        result
+                                            .err()
+                                            .map(|e| e.to_string())
+                                            .unwrap_or_else(|| "SSH stream ended".into()),
+                                    ),
+                                );
                                 for _ in 0..100 {
                                     if stopped.load(Ordering::Relaxed) {
                                         break;
@@ -229,6 +234,7 @@ fn remote_stream(
     tx: &mpsc::SyncSender<Event>,
     slot: &ChildSlot,
     stop: &AtomicBool,
+    dropped: &AtomicU64,
 ) -> Result<()> {
     let agent = node
         .remote_agent
@@ -270,12 +276,11 @@ fn remote_stream(
             };
             let snapshot: HostSnapshot = serde_json::from_slice(&line)?;
             snapshot.validate(&node.id).map_err(anyhow::Error::msg)?;
-            let _ = tx.try_send(Event::Snapshot(
-                index,
-                Arc::new(snapshot),
-                now_ms(),
-                Instant::now(),
-            ));
+            enqueue(
+                tx,
+                dropped,
+                Event::Snapshot(index, Arc::new(snapshot), now_ms(), Instant::now()),
+            );
         }
         Ok(())
     })();
@@ -287,6 +292,12 @@ fn remote_stream(
         }
     }
     result
+}
+
+fn enqueue(tx: &mpsc::SyncSender<Event>, dropped: &AtomicU64, event: Event) {
+    if matches!(tx.try_send(event), Err(mpsc::TrySendError::Full(_))) {
+        dropped.fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 pub fn read_frame(reader: &mut impl BufRead) -> Result<Option<Vec<u8>>> {
@@ -303,6 +314,14 @@ pub fn read_frame(reader: &mut impl BufRead) -> Result<Option<Vec<u8>>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn bounded_ingress_accounts_for_dropped_events() {
+        let (tx, _rx) = mpsc::sync_channel(1);
+        let dropped = AtomicU64::new(0);
+        enqueue(&tx, &dropped, Event::Error(0, "first".into()));
+        enqueue(&tx, &dropped, Event::Error(0, "second".into()));
+        assert_eq!(dropped.load(Ordering::Relaxed), 1);
+    }
     #[test]
     fn streaming_frames_are_bounded_even_without_a_newline() {
         let huge = vec![b'a'; MAX_MESSAGE_BYTES + 10];

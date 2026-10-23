@@ -13,7 +13,20 @@ app_dir="$repo_dir/.local/moonitor.app"
 mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources"
 cp target/release/moonitor "$app_dir/Contents/MacOS/moonitor"
 if [ ! -f .local/fleet.toml ]; then cp config/fleet.example.toml .local/fleet.toml; fi
-cp .local/fleet.toml "$app_dir/Contents/Resources/fleet.toml"
+config_dir="$HOME/Library/Application Support/moonitor"
+mkdir -p "$config_dir"
+# Preserve an existing user configuration. Never embed private fleet data in a bundle.
+if [ ! -e "$config_dir/fleet.toml" ]; then
+  cp .local/fleet.toml "$config_dir/fleet.toml"
+  chmod 600 "$config_dir/fleet.toml"
+fi
+if [ -f "$app_dir/Contents/Resources/fleet.toml" ]; then
+  backup_dir="$repo_dir/.local/checkpoints/$(date -u +%Y%m%dT%H%M%SZ)-bundle-config"
+  mkdir -p "$backup_dir"
+  cp "$app_dir/Contents/Resources/fleet.toml" "$backup_dir/fleet.toml"
+  rm "$app_dir/Contents/Resources/fleet.toml"
+fi
+python3 scripts/build-manifest.py "$app_dir/Contents/Resources/build-manifest.json"
 cat > "$app_dir/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

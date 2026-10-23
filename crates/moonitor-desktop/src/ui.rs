@@ -1,7 +1,8 @@
 use crate::{
-    config::{Config, NodeKind},
+    config::Config,
     engine::{Engine, NodeState},
     scene::{Camera, Scene},
+    view_model::{FleetViewModel, Metric, NodeStatus},
 };
 use iced::{
     Border, Color, Element, Font,
@@ -9,12 +10,12 @@ use iced::{
     Subscription, Task, Theme, alignment,
     widget::{
         self, Column, Row, Space, button, canvas, column, container, progress_bar, row, scrollable,
-        text, text_input,
+        text, text_input, tooltip,
     },
     window,
 };
 use moonitor_core::*;
-use moonitor_store::{HistoryPoint, memory_percent};
+use moonitor_store::HistoryPoint;
 use std::{
     path::PathBuf,
     time::{Duration, Instant},
@@ -29,7 +30,6 @@ const GREEN: Color = Color::from_rgb(0.23, 0.49, 0.36);
 const LIME: Color = Color::from_rgb(0.71, 0.87, 0.60);
 const AMBER: Color = Color::from_rgb(0.65, 0.40, 0.18);
 const NAV: Color = Color::from_rgb(0.085, 0.12, 0.11);
-const DEVICE_IDS: [&str; 5] = ["macbook", "exon", "spark", "zima", "iphone"];
 const FONT: Font = Font::with_name("Inter");
 const MEDIUM: Font = Font {
     weight: iced::font::Weight::Medium,
@@ -39,6 +39,114 @@ const STRONG: Font = Font {
     weight: iced::font::Weight::Semibold,
     ..FONT
 };
+#[derive(Clone, Copy)]
+pub struct DisplayOptions {
+    pub size: iced::Size,
+    pub dark: bool,
+    pub scene_visible: bool,
+}
+impl Default for DisplayOptions {
+    fn default() -> Self {
+        Self {
+            size: iced::Size::new(1380.0, 940.0),
+            dark: false,
+            scene_visible: true,
+        }
+    }
+}
+fn tone(color: Color, theme: &Theme) -> Color {
+    if !theme.extended_palette().is_dark {
+        return color;
+    }
+    if color == Color::from_rgb(0.72, 0.25, 0.23) {
+        return Color::from_rgb(0.94, 0.57, 0.53);
+    }
+    if color == Color::from_rgb(0.70, 0.45, 0.15) {
+        return Color::from_rgb(0.94, 0.72, 0.40);
+    }
+    if color == Color::from_rgb(0.35, 0.46, 0.65) {
+        return Color::from_rgb(0.62, 0.74, 0.94);
+    }
+    if color == Color::from_rgb(0.48, 0.51, 0.50) {
+        return Color::from_rgb(0.66, 0.72, 0.68);
+    }
+    if color == BG {
+        Color::from_rgb(0.051, 0.086, 0.075)
+    } else if color == PAPER {
+        Color::from_rgb(0.078, 0.125, 0.102)
+    } else if color == INK {
+        Color::from_rgb(0.918, 0.949, 0.925)
+    } else if color == MUTED {
+        Color::from_rgb(0.64, 0.72, 0.67)
+    } else if color == LINE {
+        Color::from_rgb(0.20, 0.29, 0.24)
+    } else if color == GREEN {
+        Color::from_rgb(0.48, 0.75, 0.58)
+    } else if color.r > 0.8 && color.g > 0.8 && color.b > 0.7 && color != Color::WHITE {
+        Color::from_rgb(0.12, 0.21, 0.16)
+    } else {
+        color
+    }
+}
+trait TextTone {
+    fn tone(self, color: Color) -> Self;
+}
+impl TextTone for widget::Text<'_> {
+    fn tone(self, color: Color) -> Self {
+        self.style(move |theme| text::Style {
+            color: Some(if color == Color::WHITE {
+                color
+            } else {
+                tone(color, theme)
+            }),
+        })
+    }
+}
+fn themed_panel(theme: &Theme, mut style: container::Style) -> container::Style {
+    if let Some(iced::Background::Color(c)) = style.background {
+        style.background = Some(tone(c, theme).into());
+    }
+    if let Some(c) = style.text_color {
+        style.text_color = Some(tone(c, theme));
+    }
+    style.border.color = tone(style.border.color, theme);
+    style
+}
+fn themed_button(theme: &Theme, mut style: button::Style) -> button::Style {
+    if let Some(iced::Background::Color(c)) = style.background {
+        style.background = Some(tone(c, theme).into());
+    }
+    style.text_color = tone(style.text_color, theme);
+    style.border.color = tone(style.border.color, theme);
+    style
+}
+fn app_theme(dark: bool) -> Theme {
+    if dark {
+        Theme::custom(
+            "moonitor dark",
+            iced::theme::Palette {
+                background: Color::from_rgb(0.051, 0.086, 0.075),
+                text: Color::from_rgb(0.918, 0.949, 0.925),
+                primary: GREEN,
+                success: GREEN,
+                warning: AMBER,
+                danger: AMBER,
+            },
+        )
+    } else {
+        Theme::custom(
+            "moonitor",
+            iced::theme::Palette {
+                background: BG,
+                text: INK,
+                primary: GREEN,
+                success: GREEN,
+                warning: AMBER,
+                danger: AMBER,
+            },
+        )
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Tab {
     Overview,
@@ -92,8 +200,12 @@ const TABS: [Tab; 6] = [
 #[derive(Debug, Clone)]
 pub enum Message {
     Tick,
-    Select(usize),
-    SceneSelect(usize),
+    CaptureScreenshot,
+    Frame,
+    Select(String),
+    ToggleScene,
+    Focus(bool),
+    NextNode(i32),
     Tab(Tab),
     Filter(String),
     Sort(bool),
@@ -104,10 +216,14 @@ pub enum Message {
     Screenshot(window::Screenshot, PathBuf),
 }
 pub struct App {
-    _engine: Engine,
+    _engine: Option<Engine>,
     nodes: Vec<NodeState>,
     storage_error: Option<String>,
-    selected: usize,
+    dropped_events: u64,
+    pending_samples: Vec<Instant>,
+    selected: Option<String>,
+    scene_visible: bool,
+    dark: bool,
     tab: Tab,
     filter: String,
     sort_memory: bool,
@@ -124,16 +240,21 @@ pub fn run(
     tab: Tab,
     screenshot: Option<PathBuf>,
     exit_after: Option<f32>,
+    display: DisplayOptions,
 ) -> anyhow::Result<()> {
     iced::application(
         move || {
             let engine = Engine::start(config.clone(), data_dir.join("history.sqlite"));
             let nodes = engine.state.lock().unwrap().nodes.clone();
             App {
-                _engine: engine,
+                _engine: Some(engine),
+                selected: nodes.get(selected).map(|n| n.config.id.clone()),
+                scene_visible: display.scene_visible,
+                dark: display.dark,
                 nodes,
                 storage_error: None,
-                selected,
+                dropped_events: 0,
+                pending_samples: Vec::new(),
                 tab,
                 filter: String::new(),
                 sort_memory: false,
@@ -149,7 +270,7 @@ pub fn run(
     )
     .title("moonitor")
     .window(window::Settings {
-        size: iced::Size::new(1380.0, 940.0),
+        size: display.size,
         min_size: Some(iced::Size::new(1160.0, 760.0)),
         position: window::Position::Centered,
         ..Default::default()
@@ -158,23 +279,39 @@ pub fn run(
     .font(include_bytes!("../assets/Inter-Regular.ttf").as_slice())
     .font(include_bytes!("../assets/Inter-Medium.ttf").as_slice())
     .font(include_bytes!("../assets/Inter-SemiBold.ttf").as_slice())
-    .theme(|_: &App| {
-        Theme::custom(
-            "moonitor",
-            iced::theme::Palette {
-                background: BG,
-                text: INK,
-                primary: GREEN,
-                success: GREEN,
-                warning: AMBER,
-                danger: AMBER,
-            },
-        )
-    })
-    .subscription(|_: &App| {
+    .theme(|app: &App| app_theme(app.dark))
+    .subscription(|app: &App| {
         Subscription::batch([
             iced::time::every(Duration::from_secs(1)).map(|_| Message::Tick),
             window::events().map(|(id, e)| Message::Window(id, e)),
+            if app.pending_samples.is_empty() {
+                Subscription::none()
+            } else {
+                window::frames().map(|_| Message::Frame)
+            },
+            iced::event::listen_with(|event, status, _| {
+                if status == iced::event::Status::Captured {
+                    return None;
+                }
+                let iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
+                    key, modifiers, ..
+                }) = event
+                else {
+                    return None;
+                };
+                use iced::keyboard::{Key, key::Named};
+                match key {
+                    Key::Named(Named::Tab) => Some(Message::Focus(modifiers.shift())),
+                    Key::Named(Named::ArrowLeft) if modifiers.alt() => Some(Message::NextNode(-1)),
+                    Key::Named(Named::ArrowRight) if modifiers.alt() => Some(Message::NextNode(1)),
+                    Key::Character(ref c) if modifiers.command() => c
+                        .parse::<usize>()
+                        .ok()
+                        .filter(|i| (1..=6).contains(i))
+                        .map(|i| Message::Tab(TABS[i - 1])),
+                    _ => None,
+                }
+            }),
         ])
     })
     .run()
@@ -184,10 +321,30 @@ impl App {
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::Tick => {
-                let shared = self._engine.state.lock().unwrap();
-                self.nodes = shared.nodes.clone();
-                self.storage_error = shared.storage_error.clone();
-                drop(shared);
+                if let Some(engine) = &self._engine {
+                    let shared = engine.state.lock().unwrap();
+                    if std::env::var_os("MOONITOR_RENDER_DIAGNOSTICS").is_some() {
+                        self.pending_samples = shared
+                            .nodes
+                            .iter()
+                            .filter(|n| {
+                                self.nodes
+                                    .iter()
+                                    .find(|old| old.config.id == n.config.id)
+                                    .is_none_or(|old| old.last_seen != n.last_seen)
+                            })
+                            .filter_map(|n| n.last_seen)
+                            .collect();
+                    }
+                    self.nodes = shared.nodes.clone();
+                    self.storage_error = shared.storage_error.clone();
+                    self.dropped_events = shared
+                        .dropped_events
+                        .load(std::sync::atomic::Ordering::Relaxed);
+                }
+                self.selected =
+                    FleetViewModel::new(&self.nodes, self.selected.as_deref(), Instant::now())
+                        .selected_id;
                 if self
                     .exit_after
                     .is_some_and(|s| self.started.elapsed().as_secs_f32() >= s)
@@ -196,9 +353,29 @@ impl App {
                 }
                 if self.started.elapsed() >= Duration::from_secs(8)
                     && self.window.is_some()
-                    && let Some(path) = self.screenshot.take()
+                    && self.screenshot.is_some()
                 {
-                    return window::screenshot(self.window.unwrap())
+                    // Capture on a separate event-loop turn: Tick replaces paragraphs.
+                    // Capturing the previous renderer batch here leaves dangling weak text references.
+                    return Task::perform(
+                        async {
+                            std::thread::sleep(Duration::from_millis(150));
+                        },
+                        |_| Message::CaptureScreenshot,
+                    );
+                }
+            }
+            Message::Frame => {
+                for seen in self.pending_samples.drain(..) {
+                    eprintln!(
+                        "moonitor-ui-latency: receipt_to_redraw_ms={:.3}",
+                        seen.elapsed().as_secs_f64() * 1000.0
+                    );
+                }
+            }
+            Message::CaptureScreenshot => {
+                if let (Some(window), Some(path)) = (self.window, self.screenshot.take()) {
+                    return window::screenshot(window)
                         .map(move |s| Message::Screenshot(s, path.clone()));
                 }
             }
@@ -215,14 +392,29 @@ impl App {
                     eprintln!("Screenshot failed: {e}");
                 }
             }
-            Message::Select(i) => {
-                if i < self.nodes.len() {
-                    self.selected = i;
+            Message::Select(id) => {
+                if self.nodes.iter().any(|n| n.config.id == id) {
+                    self.selected = Some(id);
                 }
             }
-            Message::SceneSelect(i) => {
-                if let Some(index) = self.nodes.iter().position(|n| n.config.id == DEVICE_IDS[i]) {
-                    self.selected = index;
+            Message::ToggleScene => self.scene_visible = !self.scene_visible,
+            Message::Focus(reverse) => {
+                return if reverse {
+                    widget::operation::focus_previous()
+                } else {
+                    widget::operation::focus_next()
+                };
+            }
+            Message::NextNode(delta) => {
+                if !self.nodes.is_empty() {
+                    let current = self
+                        .nodes
+                        .iter()
+                        .position(|n| Some(n.config.id.as_str()) == self.selected.as_deref())
+                        .unwrap_or(0);
+                    let next =
+                        (current as i32 + delta).rem_euclid(self.nodes.len() as i32) as usize;
+                    self.selected = Some(self.nodes[next].config.id.clone());
                 }
             }
             Message::Tab(tab) => self.tab = tab,
@@ -235,10 +427,14 @@ impl App {
         Task::none()
     }
     fn view(&self) -> Element<'_, Message> {
-        let Some(node) = self.nodes.get(self.selected) else {
-            return text("Nessun dispositivo configurato").into();
+        let fleet = FleetViewModel::new(&self.nodes, self.selected.as_deref(), Instant::now());
+        let Some(node) = self
+            .nodes
+            .iter()
+            .find(|n| Some(n.config.id.as_str()) == fleet.selected_id.as_deref())
+        else {
+            return container(column![text("Nessun dispositivo configurato").size(24), text("Aggiungi un nodo local o ssh nel file fleet.toml. I dispositivi senza agente possono essere censiti come unavailable.").size(14)].spacing(16)).padding(32).into();
         };
-        let active = self.nodes.iter().filter(|n| n.live()).count();
         let header = row![
             column![
                 eyebrow("WORKSPACE / HOMELAB"),
@@ -246,8 +442,16 @@ impl App {
             ]
             .spacing(8),
             Space::new().width(Fill),
-            pill(&format!("{active} / {} online", self.nodes.len()), GREEN),
-            text("LOCALE  /  VPN").size(10).color(MUTED)
+            pill(
+                &format!(
+                    "{} / {} monitorati online · {} censiti",
+                    fleet.online,
+                    fleet.monitored,
+                    fleet.devices.len()
+                ),
+                GREEN
+            ),
+            text("LOCALE  /  VPN").size(10).tone(MUTED)
         ]
         .spacing(20)
         .align_y(alignment::Vertical::Center);
@@ -255,25 +459,30 @@ impl App {
         if let Some(error) = &self.storage_error {
             body = body.push(notice(&format!("Storico non disponibile: {error}")));
         }
+        if self.dropped_events > 0 {
+            body = body.push(notice(&format!(
+                "Coda di acquisizione piena: {} aggiornamenti scartati",
+                self.dropped_events
+            )));
+        }
         if self.tab == Tab::Overview {
-            let live = std::array::from_fn(|i| {
-                self.nodes
-                    .iter()
-                    .find(|n| n.config.id == DEVICE_IDS[i])
-                    .is_some_and(NodeState::live)
-            });
-            let selected = DEVICE_IDS
-                .iter()
-                .position(|id| *id == node.config.id)
-                .unwrap_or(0);
             let scene = Scene {
-                selected,
-                live,
+                selected: fleet.selected_id.clone(),
+                devices: fleet.devices.clone(),
+                dark: self.dark,
                 camera: self.camera,
             };
             let controls = row![
-                text("IL TUO HOMELAB").size(10).font(MEDIUM).color(MUTED),
+                text("IL TUO HOMELAB").size(10).font(MEDIUM).tone(MUTED),
                 Space::new().width(Fill),
+                small_button(
+                    if self.scene_visible {
+                        "Solo elenco"
+                    } else {
+                        "Mostra 3D"
+                    },
+                    Message::ToggleScene
+                ),
                 small_button("−", Message::Zoom(-0.1)),
                 small_button("+", Message::Zoom(0.1)),
                 small_button("Ripristina", Message::ResetCamera)
@@ -283,18 +492,29 @@ impl App {
             let scene_panel = container(
                 column![
                     container(controls).padding([14, 18]),
-                    widget::shader(scene).width(Fill).height(398),
+                    if self.scene_visible {
+                        Element::from(widget::stack![
+                            widget::shader(scene.clone()).width(Fill).height(300),
+                            canvas(scene).width(Fill).height(300)
+                        ])
+                    } else {
+                        Element::from(container(self.scene_list()).height(300).padding(18))
+                    },
                     container(
                         row![
                             text(format!("{:02}", self.nodes.len()))
                                 .font(STRONG)
                                 .size(12)
-                                .color(GREEN),
-                            text("DISPOSITIVI").size(10).color(MUTED),
+                                .tone(GREEN),
+                            text("DISPOSITIVI").size(10).tone(MUTED),
                             Space::new().width(Fill),
-                            text("Trascina per ruotare · clicca per selezionare")
-                                .size(10)
-                                .color(MUTED)
+                            text(if self.scene_visible {
+                                "Trascina per ruotare · clicca per selezionare"
+                            } else {
+                                "Seleziona un dispositivo · elenco sincronizzato"
+                            })
+                            .size(10)
+                            .tone(MUTED)
                         ]
                         .spacing(8)
                     )
@@ -302,14 +522,19 @@ impl App {
                 ]
                 .spacing(0),
             )
-            .style(|_| container::Style {
-                background: Some(Color::from_rgb(0.95, 0.956, 0.938).into()),
-                border: Border {
-                    radius: 18.into(),
-                    color: LINE,
-                    width: 1.0,
-                },
-                ..Default::default()
+            .style(|theme| {
+                themed_panel(
+                    theme,
+                    container::Style {
+                        background: Some(Color::from_rgb(0.95, 0.956, 0.938).into()),
+                        border: Border {
+                            radius: 18.into(),
+                            color: LINE,
+                            width: 1.0,
+                        },
+                        ..Default::default()
+                    },
+                )
             })
             .width(Fill);
             body = body.push(row![scene_panel, self.inspector(node)].spacing(16));
@@ -322,10 +547,15 @@ impl App {
         body = body.push(self.details(node));
         let main = scrollable(container(body).padding([28, 28]).width(Fill)).height(Fill);
         container(row![self.sidebar(), main].spacing(0))
-            .style(|_| container::Style {
-                background: Some(BG.into()),
-                text_color: Some(INK),
-                ..Default::default()
+            .style(|theme| {
+                themed_panel(
+                    theme,
+                    container::Style {
+                        background: Some(BG.into()),
+                        text_color: Some(INK),
+                        ..Default::default()
+                    },
+                )
             })
             .width(Fill)
             .height(Fill)
@@ -334,7 +564,7 @@ impl App {
     fn sidebar(&self) -> Element<'_, Message> {
         let brand = row![
             canvas(Icon("moon", LIME)).width(28).height(28),
-            text("moonitor").size(23).font(STRONG).color(Color::WHITE)
+            text("moonitor").size(23).font(STRONG).tone(Color::WHITE)
         ]
         .spacing(8)
         .align_y(alignment::Vertical::Center);
@@ -342,11 +572,11 @@ impl App {
             container(brand).padding([8, 0]),
             text("PERSONAL OBSERVATORY")
                 .size(8)
-                .color(Color::from_rgb(0.49, 0.60, 0.53)),
+                .tone(Color::from_rgb(0.49, 0.60, 0.53)),
             Space::new().height(30),
             text("MONITORAGGIO")
                 .size(9)
-                .color(Color::from_rgb(0.47, 0.57, 0.51))
+                .tone(Color::from_rgb(0.47, 0.57, 0.51))
         ]
         .spacing(10);
         for tab in TABS {
@@ -368,48 +598,53 @@ impl App {
                 .on_press(Message::Tab(tab))
                 .width(Fill)
                 .padding([13, 12])
-                .style(move |_, state| button::Style {
-                    background: Some(
-                        if chosen {
-                            Color::from_rgb(0.16, 0.23, 0.18)
-                        } else if matches!(state, button::Status::Hovered) {
-                            Color::from_rgb(0.12, 0.18, 0.14)
-                        } else {
-                            NAV
-                        }
-                        .into(),
-                    ),
-                    text_color: color,
-                    border: Border {
-                        radius: 9.into(),
-                        ..Default::default()
-                    },
-                    ..Default::default()
+                .style(move |theme, state| {
+                    themed_button(
+                        theme,
+                        button::Style {
+                            background: Some(
+                                if chosen {
+                                    Color::from_rgb(0.16, 0.23, 0.18)
+                                } else if matches!(state, button::Status::Hovered) {
+                                    Color::from_rgb(0.12, 0.18, 0.14)
+                                } else {
+                                    NAV
+                                }
+                                .into(),
+                            ),
+                            text_color: color,
+                            border: Border {
+                                radius: 9.into(),
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        },
+                    )
                 }),
             );
         }
         nav = nav.push(Space::new().height(32)).push(
             text("I TUOI DISPOSITIVI")
                 .size(9)
-                .color(Color::from_rgb(0.47, 0.57, 0.51)),
+                .tone(Color::from_rgb(0.47, 0.57, 0.51)),
         );
-        for (i, node) in self.nodes.iter().enumerate() {
+        for node in &self.nodes {
             let (_, color) = status(node);
             nav = nav.push(
                 button(
                     row![
-                        text("•").color(color).size(15),
-                        text(&node.config.label)
-                            .size(11)
-                            .color(if self.selected == i {
+                        text("•").tone(color).size(15),
+                        text(&node.config.label).size(11).tone(
+                            if self.selected.as_deref() == Some(node.config.id.as_str()) {
                                 Color::WHITE
                             } else {
                                 Color::from_rgb(0.58, 0.67, 0.61)
-                            })
+                            }
+                        )
                     ]
                     .spacing(10),
                 )
-                .on_press(Message::Select(i))
+                .on_press(Message::Select(node.config.id.clone()))
                 .style(button::text)
                 .padding([7, 9])
                 .width(Fill),
@@ -417,18 +652,18 @@ impl App {
         }
         let footer = column![
             row![
-                text("•").color(LIME),
+                text("•").tone(LIME),
                 text("Raccolta attiva")
                     .size(11)
-                    .color(Color::from_rgb(0.73, 0.81, 0.74))
+                    .tone(Color::from_rgb(0.73, 0.81, 0.74))
             ]
             .spacing(8),
             text("1 s · SQLite locale")
                 .size(10)
-                .color(Color::from_rgb(0.44, 0.55, 0.48)),
+                .tone(Color::from_rgb(0.44, 0.55, 0.48)),
             text("moonitor  /  0.1.0")
                 .size(9)
-                .color(Color::from_rgb(0.37, 0.47, 0.41))
+                .tone(Color::from_rgb(0.37, 0.47, 0.41))
         ]
         .spacing(10);
         container(
@@ -441,16 +676,41 @@ impl App {
         .padding([24, 18])
         .width(202)
         .height(Fill)
-        .style(|_| container::Style {
-            background: Some(NAV.into()),
-            ..Default::default()
+        .style(|theme| {
+            themed_panel(
+                theme,
+                container::Style {
+                    background: Some(NAV.into()),
+                    ..Default::default()
+                },
+            )
         })
         .into()
+    }
+    fn scene_list(&self) -> Element<'_, Message> {
+        let mut rows = Column::new().spacing(8);
+        for node in &self.nodes {
+            let (state, color) = status(node);
+            rows = rows.push(
+                button(
+                    row![
+                        text(&node.config.label).size(14).width(Fill),
+                        text(state).size(12).tone(color)
+                    ]
+                    .spacing(16),
+                )
+                .on_press(Message::Select(node.config.id.clone()))
+                .width(Fill)
+                .padding(10)
+                .style(button::secondary),
+            );
+        }
+        scrollable(rows).height(Fill).into()
     }
     fn device_strip(&self) -> Element<'_, Message> {
         let mut devices = Row::new().spacing(10);
         for (i, n) in self.nodes.iter().enumerate() {
-            let chosen = self.selected == i;
+            let chosen = self.selected.as_deref() == Some(n.config.id.as_str());
             let (state, color) = status(n);
             let cpu = n
                 .sample
@@ -458,49 +718,55 @@ impl App {
                 .and_then(|s| s.cpu_utilization_percent.value().copied());
             let content = column![
                 row![
-                    text(format!("{:02}", i + 1)).size(10).color(MUTED),
+                    text(format!("{:02}", i + 1)).size(10).tone(MUTED),
                     Space::new().width(Fill),
-                    text("•").color(color)
+                    text("•").tone(color)
                 ]
                 .align_y(alignment::Vertical::Center),
                 text(&n.config.label).font(STRONG).size(13),
                 row![
-                    text(if n.live() { pct(cpu) } else { state.to_owned() })
+                    text(format!("{} · CPU {}", state, pct(cpu)))
                         .size(11)
-                        .height(18)
-                        .color(if n.live() { INK } else { color }),
-                    Space::new().width(Fill),
-                    text(if n.live() { "CPU" } else { "" }).size(9).color(MUTED)
+                        .tone(if n.live() { INK } else { color }),
                 ]
             ]
             .spacing(10);
             devices = devices.push(
                 button(content)
-                    .on_press(Message::Select(i))
+                    .on_press(Message::Select(n.config.id.clone()))
                     .padding(14)
-                    .width(Fill)
-                    .style(move |_, s| button::Style {
-                        background: Some(
-                            if chosen {
-                                Color::from_rgb(0.91, 0.95, 0.88)
-                            } else if matches!(s, button::Status::Hovered) {
-                                Color::from_rgb(0.94, 0.96, 0.92)
-                            } else {
-                                PAPER
-                            }
-                            .into(),
-                        ),
-                        text_color: INK,
-                        border: Border {
-                            color: if chosen { GREEN } else { LINE },
-                            width: 1.0,
-                            radius: 12.into(),
-                        },
-                        ..Default::default()
+                    .width(190)
+                    .style(move |theme, s| {
+                        themed_button(
+                            theme,
+                            button::Style {
+                                background: Some(
+                                    if chosen {
+                                        Color::from_rgb(0.91, 0.95, 0.88)
+                                    } else if matches!(s, button::Status::Hovered) {
+                                        Color::from_rgb(0.94, 0.96, 0.92)
+                                    } else {
+                                        PAPER
+                                    }
+                                    .into(),
+                                ),
+                                text_color: INK,
+                                border: Border {
+                                    color: if chosen { GREEN } else { LINE },
+                                    width: 1.0,
+                                    radius: 12.into(),
+                                },
+                                ..Default::default()
+                            },
+                        )
                     }),
             );
         }
-        devices.into()
+        scrollable(devices)
+            .direction(scrollable::Direction::Horizontal(
+                scrollable::Scrollbar::default(),
+            ))
+            .into()
     }
     fn inspector<'a>(&self, n: &'a NodeState) -> Element<'a, Message> {
         let (state, color) = status(n);
@@ -508,55 +774,45 @@ impl App {
             row![
                 eyebrow("DISPOSITIVO SELEZIONATO"),
                 Space::new().width(Fill),
-                text("•").color(color)
+                text("•").tone(color)
             ]
             .spacing(8),
             text(&n.config.label).size(25).font(STRONG),
-            text(state).size(10).font(MEDIUM).color(color)
+            text(state).size(10).font(MEDIUM).tone(color)
         ]
         .spacing(10);
         if let Some(s) = &n.sample {
             content = content
-                .push(text(short_cpu(&s.cpu_name)).size(11).color(MUTED))
+                .push(text(short_cpu(&s.cpu_name)).size(11).tone(MUTED))
                 .push(Space::new().height(8));
             let total = s.memory.total_bytes.value().copied();
             let used = total
                 .zip(s.memory.available_bytes.value().copied())
                 .map(|(t, a)| t.saturating_sub(a));
+            let stale = !n.live();
+            let mut cpu = Metric::percent("CPU", Some(&s.cpu_utilization_percent), stale);
+            cpu.detail = format!("{} core logici", s.cpu_cores_percent.len());
+            content = content.push(metric(cpu, GREEN));
+            let mut memory = Metric::memory(s, stale);
+            memory.detail = format!("{} / {}", bytes(used), bytes(total));
+            content = content.push(metric(memory, Color::from_rgb(0.49, 0.58, 0.41)));
             content = content.push(metric(
-                "CPU",
-                s.cpu_utilization_percent.value().copied(),
-                &format!("{} core logici", s.cpu_cores_percent.len()),
-                GREEN,
-            ));
-            content = content.push(metric(
-                "Memoria",
-                memory_percent(s),
-                &format!("{} / {}", bytes(used), bytes(total)),
-                Color::from_rgb(0.49, 0.58, 0.41),
-            ));
-            content = content.push(metric(
-                "GPU",
-                gpu_percent(s),
-                s.gpus
-                    .first()
-                    .map(|g| g.name.as_str())
-                    .unwrap_or("Sensore non disponibile"),
+                Metric::gpu(s, stale),
                 Color::from_rgb(0.51, 0.58, 0.64),
             ));
             content = content.push(
                 row![
-                    text("Potenza GPU").size(11).color(MUTED),
+                    text("Potenza GPU").size(11).tone(MUTED),
                     Space::new().width(Fill),
                     text(watts(gpu_power(s))).size(15).font(MEDIUM)
                 ]
                 .align_y(alignment::Vertical::Center),
             );
-            content = content.push(text("Intero dispositivo: N/D").size(9).color(MUTED));
+            content = content.push(text("Intero dispositivo: N/D").size(9).tone(MUTED));
         } else {
             content = content
                 .push(Space::new().height(18))
-                .push(text(&n.config.note).size(13).color(MUTED))
+                .push(text(&n.config.note).size(13).tone(MUTED))
                 .push(
                     text(
                         n.error
@@ -564,20 +820,19 @@ impl App {
                             .unwrap_or("In attesa dei primi campioni."),
                     )
                     .size(11)
-                    .color(MUTED),
+                    .tone(MUTED),
                 );
         }
         if n.sample.is_some() && !n.live() {
             content = content.push(
                 text("Ultimo campione conservato · dati obsoleti")
                     .size(10)
-                    .color(AMBER),
+                    .tone(AMBER),
             );
         }
         container(content)
             .padding(22)
             .width(286)
-            .height(470)
             .style(panel)
             .into()
     }
@@ -596,7 +851,7 @@ impl App {
             c = c.push(
                 text(format!("{}  /  {}  /  {}", s.os, s.arch, s.cpu_name))
                     .size(11)
-                    .color(MUTED),
+                    .tone(MUTED),
             );
         }
         if !n.live() && n.sample.is_some() {
@@ -612,8 +867,10 @@ impl App {
         let Some(s) = &n.sample else {
             return card(
                 column![
-                    text("Telemetria non disponibile").size(18).font(STRONG),
-                    text(&n.config.note).color(MUTED).size(12)
+                    text(status(n).0).size(18).font(STRONG),
+                    text(&n.config.note).tone(MUTED).size(12),
+                    text("Questa vista richiede un agente sul dispositivo. Controlla il tipo di nodo e l'alias SSH in fleet.toml; un dispositivo senza agente resta visibile nell'inventario.").size(13),
+                    small_button("Torna alla panoramica", Message::Tab(Tab::Overview))
                 ]
                 .spacing(12),
             )
@@ -627,7 +884,7 @@ impl App {
                             .size(16)
                             .font(STRONG),
                         Space::new().width(Fill),
-                        text("ULTIMI 5 MINUTI").size(9).color(MUTED)
+                        text("ULTIMI 5 MINUTI").size(9).tone(MUTED)
                     ]
                     .align_y(alignment::Vertical::Center),
                     row![
@@ -643,20 +900,20 @@ impl App {
                 let runtime = match models {
                     Some(m) if m.is_empty() => "Ollama pronto · nessun modello caricato".to_owned(),
                     Some(m) => format!("{} modelli caricati in Ollama", m.len()),
-                    None => "Ollama non raggiungibile".into(),
+                    None => format!("Ollama: {}", reading_reason(&s.ollama.models)),
                 };
                 content = content.push(widget::rule::horizontal(1)).push(
                     row![
                         canvas(Icon("ai", GREEN)).width(20).height(20),
                         column![
                             text("AI locale").size(12).font(STRONG),
-                            text(runtime).size(11).color(MUTED)
+                            text(runtime).size(11).tone(MUTED)
                         ]
                         .spacing(5),
                         Space::new().width(Fill),
                         text(format!("{ai} processi candidati"))
                             .size(11)
-                            .color(MUTED),
+                            .tone(MUTED),
                         small_button("Apri AI locale →", Message::Tab(Tab::Ai))
                     ]
                     .spacing(14)
@@ -669,16 +926,17 @@ impl App {
                 let mut c = column![row![
                     text("Acceleratori").size(19).font(STRONG),
                     Space::new().width(Fill),
-                    text("MISURE DEL RUNTIME E DEL SISTEMA")
-                        .size(9)
-                        .color(MUTED)
+                    text("MISURE DEL RUNTIME E DEL SISTEMA").size(9).tone(MUTED)
                 ]]
                 .spacing(18);
                 for g in &s.gpus {
                     let mut gpu = column![
                         text(&g.name).size(17).font(STRONG),
                         row![
-                            mini_stat("CARICO", &pct(g.utilization_percent.value().copied())),
+                            metric(
+                                Metric::percent("CARICO", Some(&g.utilization_percent), !n.live()),
+                                GREEN
+                            ),
                             mini_stat(
                                 "MEMORIA GPU",
                                 &format!(
@@ -694,13 +952,33 @@ impl App {
                                     .map(|v| format!("{v:.0} °C"))
                                     .unwrap_or("N/D".into())
                             ),
-                            mini_stat("POTENZA SCHEDA", &watts(gpu_power(s)))
+                            mini_stat(
+                                "POTENZA SCHEDA",
+                                &watts(if s.gpus.len() == 1 {
+                                    gpu_power(s)
+                                } else {
+                                    None
+                                })
+                            )
                         ]
                         .spacing(24)
                     ]
                     .spacing(18);
+                    if g.memory_total_bytes.value().is_none()
+                        || g.memory_used_bytes.value().is_none()
+                    {
+                        gpu = gpu.push(
+                            text(format!(
+                                "Memoria GPU: totale {}, allocata {}",
+                                reading_reason(&g.memory_total_bytes),
+                                reading_reason(&g.memory_used_bytes)
+                            ))
+                            .size(11)
+                            .tone(MUTED),
+                        );
+                    }
                     if g.memory_kind == GpuMemoryKind::Unified {
-                        gpu=gpu.push(text("Memoria unificata: le allocazioni GPU condividono la RAM del nodo.").size(11).color(MUTED));
+                        gpu=gpu.push(text("Memoria unificata: le allocazioni GPU condividono la RAM del nodo.").size(11).tone(MUTED));
                     }
                     gpu = gpu.push(
                         text(format!(
@@ -712,7 +990,7 @@ impl App {
                             g.throttling.value().map(String::as_str).unwrap_or("N/D")
                         ))
                         .size(11)
-                        .color(MUTED),
+                        .tone(MUTED),
                     );
                     c = c.push(card(gpu));
                 }
@@ -722,7 +1000,7 @@ impl App {
                         c = c.push(
                             text("Runtime disponibile. Nessun modello caricato.")
                                 .size(13)
-                                .color(GREEN),
+                                .tone(GREEN),
                         )
                     }
                     Some(models) => {
@@ -739,7 +1017,7 @@ impl App {
                                         m.quantization.as_deref().unwrap_or("N/D")
                                     ))
                                     .size(12)
-                                    .color(MUTED)
+                                    .tone(MUTED)
                                 ]
                                 .spacing(10),
                             ));
@@ -747,13 +1025,13 @@ impl App {
                     }
                     None => {
                         c = c.push(
-                            text("Ollama non raggiungibile su questo nodo.")
+                            text(format!("Ollama: {}", reading_reason(&s.ollama.models)))
                                 .size(12)
-                                .color(MUTED),
+                                .tone(MUTED),
                         )
                     }
                 }
-                c=c.push(text("Token/s, latenza e code: N/D senza telemetria delle richieste dal runtime.").size(11).color(MUTED)).push(text("Processi AI riconosciuti dal nome").size(17).font(STRONG)).push(self.processes(s,true));
+                c=c.push(text("Token/s, latenza e code: N/D senza telemetria delle richieste dal runtime.").size(11).tone(MUTED)).push(text("Processi AI riconosciuti dal nome").size(17).font(STRONG)).push(self.processes(s,true));
                 c.into()
             }
             Tab::Disks => {
@@ -767,22 +1045,16 @@ impl App {
                     c = c.push(card(
                         column![
                             text(&d.mount).size(17).font(STRONG),
-                            text(&d.name).size(11).color(MUTED),
+                            text(&d.name).size(11).tone(MUTED),
                             metric(
-                                "Spazio utilizzato",
-                                used,
-                                &format!(
-                                    "{} disponibili / {} totali",
-                                    bytes(Some(d.available_bytes)),
-                                    bytes(Some(d.total_bytes))
-                                ),
+                                Metric {label:"Spazio utilizzato".into(), value:used, detail:format!("{} disponibili / {} totali", bytes(Some(d.available_bytes)),bytes(Some(d.total_bytes))), provenance:format!("sysinfo filesystem · (totale − disponibile) / totale · {} ms Unix",d.sampled_at_unix_ms), stale:!n.live()},
                                 GREEN
                             )
                         ]
                         .spacing(12),
                     ));
                 }
-                c.push(text("Capacità aggiornata ogni 5 s. I volumi APFS possono condividere lo stesso spazio.").size(11).color(MUTED)).into()
+                c.push(text("Capacità aggiornata ogni 5 s. I volumi APFS possono condividere lo stesso spazio.").size(11).tone(MUTED)).into()
             }
             Tab::Network => {
                 let mut c = column![table_row(
@@ -801,7 +1073,7 @@ impl App {
                         false,
                     ));
                 }
-                c=c.push(text("Interfacce fisiche, VPN e virtuali possono riportare lo stesso traffico: non vengono sommate.").size(11).color(MUTED));
+                c=c.push(text("Interfacce fisiche, VPN e virtuali possono riportare lo stesso traffico: non vengono sommate.").size(11).tone(MUTED));
                 card(c).into()
             }
             Tab::History => {
@@ -813,7 +1085,7 @@ impl App {
                         plot("GPU", &n.history, 2, Color::from_rgb(0.51, 0.58, 0.64)),
                         text("SQLite locale · riepilogo ogni 5 s · conservazione 7 giorni")
                             .size(11)
-                            .color(MUTED)
+                            .tone(MUTED)
                     ]
                     .spacing(20),
                 );
@@ -826,7 +1098,7 @@ impl App {
                         s.collector_duration_ms
                     ))
                     .size(12)
-                    .color(MUTED)
+                    .tone(MUTED)
                 ]
                 .spacing(14);
                 for p in &s.pressure {
@@ -846,7 +1118,7 @@ impl App {
                 for (i, v) in s.cpu_cores_percent.iter().take(32).enumerate() {
                     cores = cores.push(
                         column![
-                            text(i.to_string()).size(8).color(MUTED),
+                            text(i.to_string()).size(8).tone(MUTED),
                             text(format!("{v:.0}")).size(10).font(MEDIUM)
                         ]
                         .spacing(6),
@@ -865,6 +1137,7 @@ impl App {
     fn processes<'a>(&'a self, s: &'a HostSnapshot, ai_only: bool) -> Element<'a, Message> {
         let controls = row![
             text_input("Cerca processo…", &self.filter)
+                .id("process-filter")
                 .on_input(Message::Filter)
                 .size(12)
                 .width(260),
@@ -880,7 +1153,7 @@ impl App {
         ]
         .spacing(8)
         .align_y(alignment::Vertical::Center);
-        let mut c=column![controls,text(format!("{} processi sul nodo · sottoinsieme più attivo e candidati AI · 100% CPU = un core",s.process_count)).size(10).color(MUTED),table_row(["PROCESSO","PID","CPU","MEMORIA"],true)].spacing(14);
+        let mut c=column![controls,text(format!("{} processi sul nodo · sottoinsieme più attivo e candidati AI · 100% CPU = un core",s.process_count)).size(10).tone(MUTED),table_row(["PROCESSO","PID","CPU","MEMORIA"],true)].spacing(14);
         let filter = self.filter.to_lowercase();
         let mut ps: Vec<_> = s
             .processes
@@ -896,7 +1169,7 @@ impl App {
             c = c.push(
                 text("Nessun processo corrispondente nel campione.")
                     .size(12)
-                    .color(MUTED),
+                    .tone(MUTED),
             );
         }
         for p in ps {
@@ -913,46 +1186,52 @@ impl App {
         card(c).into()
     }
 }
-fn status(n: &NodeState) -> (&'static str, Color) {
-    if matches!(n.config.kind, NodeKind::Unavailable) {
-        ("Non collegato", MUTED)
-    } else if n.live() {
-        ("Online", GREEN)
-    } else if n.sample.is_some() {
-        ("Obsoleto", AMBER)
-    } else if n.error.is_some() {
-        ("Non raggiungibile", AMBER)
-    } else {
-        ("Connessione", MUTED)
+fn reading_reason<T>(reading: &Reading<T>) -> &str {
+    match reading {
+        Reading::Available { .. } => "disponibile",
+        Reading::Unavailable { reason } => crate::view_model::unavailable(*reason),
     }
 }
-fn panel(_: &Theme) -> container::Style {
-    container::Style {
-        background: Some(PAPER.into()),
-        border: Border {
-            color: LINE,
-            width: 1.0,
-            radius: 16.into(),
+fn status(n: &NodeState) -> (&'static str, Color) {
+    let status = NodeStatus::of(n, Instant::now());
+    let c = status.color();
+    (status.label(), Color::from_rgb(c[0], c[1], c[2]))
+}
+fn panel(theme: &Theme) -> container::Style {
+    themed_panel(
+        theme,
+        container::Style {
+            background: Some(PAPER.into()),
+            border: Border {
+                color: LINE,
+                width: 1.0,
+                radius: 16.into(),
+            },
+            ..Default::default()
         },
-        ..Default::default()
-    }
+    )
 }
 fn card<'a>(content: impl Into<Element<'a, Message>>) -> widget::Container<'a, Message> {
     container(content).padding(22).width(Fill).style(panel)
 }
 fn eyebrow(s: &str) -> widget::Text<'_> {
-    text(s).size(9).font(MEDIUM).color(MUTED)
+    text(s).size(9).font(MEDIUM).tone(MUTED)
 }
 fn pill(s: &str, c: Color) -> Element<'static, Message> {
-    container(text(s.to_owned()).size(10).font(MEDIUM).color(c))
+    container(text(s.to_owned()).size(10).font(MEDIUM).tone(c))
         .padding([7, 10])
-        .style(move |_| container::Style {
-            background: Some(Color { a: 0.08, ..c }.into()),
-            border: Border {
-                radius: 20.into(),
-                ..Default::default()
-            },
-            ..Default::default()
+        .style(move |theme| {
+            themed_panel(
+                theme,
+                container::Style {
+                    background: Some(Color { a: 0.08, ..c }.into()),
+                    border: Border {
+                        radius: 20.into(),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            )
         })
         .into()
 }
@@ -960,69 +1239,96 @@ fn small_button(s: &str, message: Message) -> Element<'static, Message> {
     button(text(s.to_owned()).size(11).font(MEDIUM))
         .on_press(message)
         .padding([7, 10])
-        .style(|_, state| button::Style {
-            text_color: INK,
-            background: Some(
-                if matches!(state, button::Status::Hovered) {
-                    LINE
-                } else {
-                    Color::TRANSPARENT
-                }
-                .into(),
-            ),
-            border: Border {
-                radius: 7.into(),
-                ..Default::default()
-            },
-            ..Default::default()
+        .style(|theme, state| {
+            themed_button(
+                theme,
+                button::Style {
+                    text_color: INK,
+                    background: Some(
+                        if matches!(state, button::Status::Hovered) {
+                            LINE
+                        } else {
+                            Color::TRANSPARENT
+                        }
+                        .into(),
+                    ),
+                    border: Border {
+                        radius: 7.into(),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            )
         })
         .into()
 }
 fn notice(s: &str) -> Element<'static, Message> {
-    container(text(s.to_owned()).size(11).color(AMBER))
+    container(text(s.to_owned()).size(11).tone(AMBER))
         .padding(12)
         .width(Fill)
-        .style(|_| container::Style {
-            background: Some(Color::from_rgb(0.98, 0.94, 0.86).into()),
-            border: Border {
-                radius: 8.into(),
-                ..Default::default()
-            },
-            ..Default::default()
+        .style(|theme| {
+            themed_panel(
+                theme,
+                container::Style {
+                    background: Some(Color::from_rgb(0.98, 0.94, 0.86).into()),
+                    border: Border {
+                        radius: 8.into(),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            )
         })
         .into()
 }
-fn metric<'a>(label: &str, value: Option<f64>, foot: &str, c: Color) -> Element<'a, Message> {
-    column![
+fn metric<'a>(metric: Metric, c: Color) -> Element<'a, Message> {
+    let explanation = metric.explanation();
+    let mut content = column![
         row![
-            text(label.to_owned()).size(12).font(MEDIUM),
+            text(metric.label.clone()).size(12).font(MEDIUM),
             Space::new().width(Fill),
-            text(pct(value))
+            text(metric.text())
                 .size(19)
                 .font(STRONG)
-                .width(70)
-                .height(26)
-                .align_x(alignment::Horizontal::Right)
+                .wrapping(text::Wrapping::None)
         ]
         .align_y(alignment::Vertical::Center),
-        progress_bar(0.0..=100.0, value.unwrap_or(0.0).clamp(0.0, 100.0) as f32)
-            .girth(4)
-            .style(move |_| progress_bar::Style {
-                background: LINE.into(),
-                bar: c.into(),
-                border: Border {
-                    radius: 2.into(),
-                    ..Default::default()
-                }
-            }),
-        text(foot.to_owned()).size(9).color(MUTED)
     ]
-    .spacing(9)
+    .spacing(7);
+    if let Some(value) = metric.value {
+        content = content.push(
+            progress_bar(0.0..=100.0, value as f32)
+                .girth(4)
+                .style(move |_| progress_bar::Style {
+                    background: LINE.into(),
+                    bar: c.into(),
+                    border: Border {
+                        radius: 2.into(),
+                        ..Default::default()
+                    },
+                }),
+        );
+    } else {
+        content = content.push(text(metric.provenance.clone()).size(11).tone(MUTED));
+    }
+    if !metric.detail.is_empty() {
+        content = content.push(text(metric.detail).size(10).tone(MUTED));
+    }
+    if metric.stale {
+        content = content.push(text("Ultima lettura · obsoleta").size(10).tone(AMBER));
+    }
+    tooltip(
+        content.width(Fill),
+        container(text(explanation).size(12))
+            .padding(12)
+            .style(panel),
+        tooltip::Position::Bottom,
+    )
     .into()
 }
 fn mini_stat<'a>(label: &str, value: &str) -> Element<'a, Message> {
     column![
-        text(label.to_owned()).size(9).color(MUTED),
+        text(label.to_owned()).size(9).tone(MUTED),
         text(value.to_owned()).size(19).font(MEDIUM)
     ]
     .spacing(10)
@@ -1035,7 +1341,7 @@ fn table_row(values: [&str; 4], heading: bool) -> Element<'static, Message> {
         r = r.push(
             text(v.to_string())
                 .size(if heading { 9 } else { 12 })
-                .color(if heading { MUTED } else { INK })
+                .tone(if heading { MUTED } else { INK })
                 .width(if i == 0 { Length::FillPortion(3) } else { Fill }),
         );
     }
@@ -1061,17 +1367,14 @@ fn bytes(v: Option<u64>) -> String {
     }
     format!("{v} B")
 }
-fn gpu_percent(s: &HostSnapshot) -> Option<f64> {
-    s.gpus
-        .iter()
-        .filter_map(|g| g.utilization_percent.value().copied())
-        .reduce(f64::max)
-}
 fn gpu_power(s: &HostSnapshot) -> Option<f64> {
-    s.power
+    let readings = s
+        .power
         .iter()
-        .find(|p| p.scope == PowerScope::GpuBoard)
-        .and_then(|p| p.watts.value().copied())
+        .filter(|p| p.scope == PowerScope::GpuBoard)
+        .map(|p| p.watts.value().copied())
+        .collect::<Option<Vec<_>>>()?;
+    (!readings.is_empty()).then(|| readings.iter().sum())
 }
 fn short_cpu(s: &str) -> String {
     s.replace("AMD Ryzen 9 ", "Ryzen 9 ")
@@ -1107,14 +1410,12 @@ fn plot<'a>(
     let last = data.last().and_then(|p| p.1);
     column![
         row![
-            text(label.to_owned()).size(11).color(MUTED),
+            text(label.to_owned()).size(11).tone(MUTED),
             Space::new().width(Fill),
             text(pct(last))
                 .size(15)
                 .font(MEDIUM)
-                .width(60)
-                .height(22)
-                .align_x(alignment::Horizontal::Right)
+                .wrapping(text::Wrapping::None)
         ],
         canvas(Trend {
             points: data,
@@ -1133,7 +1434,7 @@ impl canvas::Program<Message> for Trend {
         &self,
         _: &(),
         renderer: &iced::Renderer,
-        _: &Theme,
+        theme: &Theme,
         bounds: iced::Rectangle,
         _: iced::mouse::Cursor,
     ) -> Vec<canvas::Geometry> {
@@ -1144,7 +1445,9 @@ impl canvas::Program<Message> for Trend {
                     iced::Point::new(0.0, y * bounds.height),
                     iced::Point::new(bounds.width, y * bounds.height),
                 ),
-                canvas::Stroke::default().with_color(LINE).with_width(0.5),
+                canvas::Stroke::default()
+                    .with_color(tone(LINE, theme))
+                    .with_width(0.5),
             );
         }
         let mut previous: Option<iced::Point> = None;
@@ -1155,6 +1458,7 @@ impl canvas::Program<Message> for Trend {
                     (1.0 - (*v as f32 / 100.0).clamp(0.0, 1.0)) * bounds.height,
                 );
                 if let Some(prev) = previous
+                    && p.x > prev.x
                     && p.x - prev.x < bounds.width * 0.025
                 {
                     frame.stroke(
@@ -1179,7 +1483,7 @@ impl canvas::Program<Message> for Icon {
         &self,
         _: &(),
         renderer: &iced::Renderer,
-        _: &Theme,
+        theme: &Theme,
         bounds: iced::Rectangle,
         _: iced::mouse::Cursor,
     ) -> Vec<canvas::Geometry> {
@@ -1187,7 +1491,7 @@ impl canvas::Program<Message> for Icon {
         let s = bounds.width / 24.0;
         let stroke = canvas::Stroke::default()
             .with_width(1.5 * s)
-            .with_color(self.1);
+            .with_color(tone(self.1, theme));
         let p = canvas::Path::new(|p| {
             let mut line = |a: (f32, f32), b: (f32, f32)| {
                 p.move_to(iced::Point::new(a.0 * s, a.1 * s));
@@ -1264,3 +1568,6 @@ impl canvas::Program<Message> for Icon {
         vec![f.into_geometry()]
     }
 }
+
+#[cfg(test)]
+mod qa;

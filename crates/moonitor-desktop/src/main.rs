@@ -1,7 +1,10 @@
 mod config;
 mod engine;
+#[cfg(test)]
+mod fixtures;
 mod scene;
 mod ui;
+mod view_model;
 
 use anyhow::{Context, Result, bail};
 use std::path::PathBuf;
@@ -29,11 +32,29 @@ fn main() -> Result<()> {
     let mut screenshot = None;
     let mut exit_after = None;
     let mut selected_node = None;
+    let mut display = ui::DisplayOptions::default();
     let mut tab = "overview".to_owned();
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         let mut value = || args.next().context(format!("Missing value for {arg}"));
         match arg.as_str() {
+            "--size" => {
+                let size = value()?;
+                let (w, h) = size.split_once('x').context("Use WIDTHxHEIGHT")?;
+                let (w, h) = (w.parse::<u32>()?, h.parse::<u32>()?);
+                if !(1160..=3840).contains(&w) || !(760..=2160).contains(&h) {
+                    bail!("Size must be 1160x760 through 3840x2160");
+                }
+                display.size = iced::Size::new(w as f32, h as f32);
+            }
+            "--theme" => {
+                display.dark = match value()?.as_str() {
+                    "light" => false,
+                    "dark" => true,
+                    _ => bail!("Theme must be light or dark"),
+                };
+            }
+            "--no-scene" => display.scene_visible = false,
             "--config" => config_path = Some(PathBuf::from(value()?)),
             "--data-dir" => data_dir = Some(PathBuf::from(value()?)),
             "--screenshot" => screenshot = Some(PathBuf::from(value()?)),
@@ -48,7 +69,7 @@ fn main() -> Result<()> {
             "--tab" => tab = value()?,
             "--help" | "-h" => {
                 println!(
-                    "moonitor [--config fleet.toml] [--data-dir PATH]\n         [--node ID] [--tab overview|processes|ai|disks|network|history]\n         [--screenshot PNG] [--exit-after SECONDS]"
+                    "moonitor [--config fleet.toml] [--data-dir PATH]\n         [--node ID] [--tab overview|processes|ai|disks|network|history]\n         [--screenshot PNG] [--exit-after SECONDS]\n         [--size WIDTHxHEIGHT] [--theme light|dark] [--no-scene]"
                 );
                 return Ok(());
             }
@@ -56,10 +77,8 @@ fn main() -> Result<()> {
         }
     }
     if config_path.is_none() {
-        let bundled = std::env::current_exe()?
-            .parent()
-            .map(|p| p.join("../Resources/fleet.toml"));
-        config_path = bundled.filter(|p| p.is_file());
+        let installed = default_data_dir().join("fleet.toml");
+        config_path = installed.is_file().then_some(installed);
     }
     let config = config::Config::load(config_path.as_deref())?;
     if let Some(id) = &selected_node
@@ -89,6 +108,7 @@ fn main() -> Result<()> {
         selected_tab,
         screenshot,
         exit_after,
+        display,
     )
 }
 

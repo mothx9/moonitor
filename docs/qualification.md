@@ -1,3 +1,5 @@
+> Historical qualification of the initial desktop. For the current Iced/wgpu branch use [W0 qualification](moonitor-w0-qualification.md); results below are not evidence for the new changes.
+
 # First working version — 2026-10-22
 
 ## Verified
