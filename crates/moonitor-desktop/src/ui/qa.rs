@@ -11,10 +11,16 @@ fn app(count: usize, tab: Tab) -> App {
         scene_visible: true,
         dark: false,
         tab,
+        section: if tab == Tab::Overview {
+            Section::Overview
+        } else {
+            Section::Device
+        },
         filter: String::new(),
         sort_memory: false,
         camera: Camera::default(),
         started: Instant::now(),
+        view_time_ms: crate::fixtures::TIME_MS,
         screenshot: None,
         exit_after: None,
         window: None,
@@ -57,6 +63,15 @@ fn selection_messages_do_not_follow_indices() {
     assert!(app.selected.is_none());
 }
 #[test]
+fn switching_context_keeps_the_page_and_absent_data_is_not_stale() {
+    let mut app = app(5, Tab::Overview);
+    let _ = app.update(Message::SwitchNode("qa-4".into()));
+    assert_eq!(app.section, Section::Overview);
+    assert_eq!(app.selected.as_deref(), Some("qa-4"));
+    assert!(!Metric::percent("CPU", None, true).stale);
+    assert!(Metric::memory(&crate::fixtures::sample("qa-0"), true).stale);
+}
+#[test]
 #[ignore = "Requires a graphical backend. Run scripts/qa-ui.sh."]
 fn visual_matrix_and_interactions() {
     let dir =
@@ -66,11 +81,17 @@ fn visual_matrix_and_interactions() {
     let case = std::env::var("MOONITOR_QA_CASE").ok();
     let mut covered = 0;
     for (width, height) in [(1280, 800), (1440, 900), (3840, 2160)] {
-        for (name, tab) in [
-            ("overview", Tab::Overview),
-            ("ai", Tab::Ai),
-            ("history", Tab::History),
-            ("processes", Tab::Processes),
+        for (name, section, tab) in [
+            ("overview", Section::Overview, Tab::Overview),
+            ("fleet", Section::Fleet, Tab::Overview),
+            ("workloads", Section::Workloads, Tab::Overview),
+            ("energy", Section::Energy, Tab::Overview),
+            ("events", Section::Events, Tab::Overview),
+            ("explore", Section::Explore, Tab::Overview),
+            ("settings", Section::Settings, Tab::Overview),
+            ("ai", Section::Device, Tab::Ai),
+            ("history", Section::Device, Tab::History),
+            ("processes", Section::Device, Tab::Processes),
         ] {
             for dark in [false, true] {
                 let case_name = format!(
@@ -83,10 +104,33 @@ fn visual_matrix_and_interactions() {
                 covered += 1;
                 let mut app = app(5, tab);
                 app.dark = dark;
+                app.section = section;
                 let mut ui =
                     Simulator::with_size(settings(), (width as f32, height as f32), app.view());
-                let target = ui.find("QA device 0").unwrap();
+                let target = ui.find(section.label()).unwrap();
                 assert!(target.visible_bounds().is_some());
+                if section == Section::Overview {
+                    for label in [
+                        "Resource timeline",
+                        "Lab Map",
+                        "Modelli osservati",
+                        "0%",
+                        "37%",
+                    ] {
+                        assert!(
+                            ui.find(label).unwrap().visible_bounds().is_some(),
+                            "{label} below fold in {case_name}"
+                        );
+                    }
+                }
+                if section == Section::Fleet {
+                    let header_x = ui.find("STATO").unwrap().visible_bounds().unwrap().x;
+                    let value_x = ui.find("Online").unwrap().visible_bounds().unwrap().x;
+                    assert!(
+                        (header_x - value_x).abs() <= 12.0,
+                        "Fleet columns misaligned: {header_x} vs {value_x}"
+                    );
+                }
                 let snapshot = ui.snapshot(&app_theme(dark)).unwrap();
                 let path = dir.join(format!(
                     "fixture-{name}-{width}x{height}-{}",
@@ -125,24 +169,39 @@ fn visual_matrix_and_interactions() {
     }
     let mut app = app(5, Tab::Overview);
     let mut ui = Simulator::with_size(settings(), (1440.0, 900.0), app.view());
-    ui.click("AI locale").unwrap();
+    ui.click("Fleet").unwrap();
     for message in ui.into_messages() {
         let _ = app.update(message);
     }
-    assert_eq!(app.tab, Tab::Ai);
+    assert_eq!(app.section, Section::Fleet);
     let mut ui = Simulator::with_size(settings(), (1440.0, 900.0), app.view());
     ui.click("QA device 4").unwrap();
     for message in ui.into_messages() {
         let _ = app.update(message);
     }
     assert_eq!(app.selected.as_deref(), Some("qa-4"));
+    assert_eq!(app.section, Section::Device);
     let mut ui = Simulator::with_size(settings(), (1440.0, 900.0), app.view());
-    assert!(ui.find("Non strumentato").is_ok());
-    ui.click("Torna alla panoramica").unwrap();
+    ui.click("AI locale").unwrap();
     for message in ui.into_messages() {
         let _ = app.update(message);
     }
-    assert_eq!(app.tab, Tab::Overview);
+    assert_eq!(app.tab, Tab::Ai);
+    let mut ui = Simulator::with_size(settings(), (1440.0, 900.0), app.view());
+    assert!(ui.find("Non strumentato").is_ok());
+    ui.click("Vai alla flotta").unwrap();
+    for message in ui.into_messages() {
+        let _ = app.update(message);
+    }
+    assert_eq!(app.section, Section::Fleet);
+    for section in SECTIONS {
+        let mut ui = Simulator::with_size(settings(), (1440.0, 900.0), app.view());
+        ui.click(section.label()).unwrap();
+        for message in ui.into_messages() {
+            let _ = app.update(message);
+        }
+        assert_eq!(app.section, section);
+    }
 }
 #[test]
 #[ignore = "Requires a graphical backend. Run scripts/qa-ui.sh."]
@@ -276,4 +335,40 @@ fn scene_picking_filter_keyboard_and_scroll() {
     assert_eq!(app.selected.as_deref(), Some("qa-1"));
     let _ = app.update(Message::NextNode(-1));
     assert_eq!(app.selected.as_deref(), Some("qa-0"));
+}
+
+#[test]
+#[ignore = "Requires a graphical backend. Run scripts/qa-ui.sh."]
+fn list_alternative_selection_and_theme() {
+    let dir = std::path::PathBuf::from(std::env::var("MOONITOR_QA_DIR").unwrap());
+    std::fs::create_dir_all(&dir).unwrap();
+    for dark in [false, true] {
+        let mut app = app(5, Tab::Overview);
+        app.dark = dark;
+        app.scene_visible = false;
+        let mut ui = Simulator::with_size(settings(), (1280.0, 800.0), app.view());
+        let path = dir.join(if dark {
+            "fixture-list-dark"
+        } else {
+            "fixture-list-light"
+        });
+        assert!(
+            ui.snapshot(&app_theme(dark))
+                .unwrap()
+                .matches_image(&path)
+                .unwrap()
+        );
+        assert!(
+            ui.snapshot(&app_theme(dark))
+                .unwrap()
+                .matches_image(&path)
+                .unwrap()
+        );
+        ui.click("QA device 4").unwrap();
+        for message in ui.into_messages() {
+            let _ = app.update(message);
+        }
+        assert_eq!(app.selected.as_deref(), Some("qa-4"));
+        assert_eq!(app.section, Section::Device);
+    }
 }

@@ -8,8 +8,9 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
+pub const TIME_MS: u64 = 1_792_742_400_000;
 pub fn sample(id: &str) -> HostSnapshot {
-    let t = 1_792_742_400_000;
+    let t = TIME_MS;
     HostSnapshot {
         schema_version: SCHEMA_VERSION,
         node_id: id.into(),
@@ -51,7 +52,21 @@ pub fn sample(id: &str) -> HostSnapshot {
         temperatures: vec![],
         pressure: vec![],
         ollama: RuntimeSnapshot {
-            models: Reading::unavailable(UnavailableReason::NotConfigured),
+            models: if id == "qa-0" {
+                Reading::reported(
+                    vec![LoadedModel {
+                        name: "QA model · fixture".into(),
+                        size_bytes: 4 << 30,
+                        gpu_allocation_bytes: None,
+                        context_length: Some(8192),
+                        quantization: Some("QA Q4".into()),
+                    }],
+                    "QA runtime",
+                    t,
+                )
+            } else {
+                Reading::unavailable(UnavailableReason::NotConfigured)
+            },
         },
         battery_percent: Reading::unavailable(UnavailableReason::Unsupported),
         collector_duration_ms: 1.0,
@@ -96,7 +111,26 @@ pub fn fleet(count: usize) -> Vec<NodeState> {
                 } else {
                     None
                 },
-                history: Default::default(),
+                history: if i % 5 < 2 {
+                    (0..60)
+                        .map(|j| moonitor_store::HistoryPoint {
+                            received_at_ms: TIME_MS - (59 - j) * 5_000,
+                            cpu_percent: if (20..25).contains(&j) {
+                                None
+                            } else {
+                                Some((j * 7 % 35) as f64)
+                            },
+                            memory_percent: Some(50.0),
+                            gpu_percent: if (20..25).contains(&j) {
+                                None
+                            } else {
+                                Some((j * 11 % 70) as f64)
+                            },
+                        })
+                        .collect()
+                } else {
+                    Default::default()
+                },
             }
         })
         .collect()

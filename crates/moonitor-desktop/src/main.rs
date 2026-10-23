@@ -67,9 +67,12 @@ fn main() -> Result<()> {
             }
             "--node" => selected_node = Some(value()?),
             "--tab" => tab = value()?,
+            "--section" => {
+                display.section = Some(ui::Section::parse(&value()?).context("Unknown section")?)
+            }
             "--help" | "-h" => {
                 println!(
-                    "moonitor [--config fleet.toml] [--data-dir PATH]\n         [--node ID] [--tab overview|processes|ai|disks|network|history]\n         [--screenshot PNG] [--exit-after SECONDS]\n         [--size WIDTHxHEIGHT] [--theme light|dark] [--no-scene]"
+                    "moonitor [--config fleet.toml] [--data-dir PATH]\n         [--node ID] [--tab overview|compute|sensors|processes|ai|disks|network|history]\n         [--section overview|fleet|workloads|energy|events|explore|settings|device]\n         [--screenshot PNG] [--exit-after SECONDS]\n         [--size WIDTHxHEIGHT] [--theme light|dark] [--no-scene]"
                 );
                 return Ok(());
             }

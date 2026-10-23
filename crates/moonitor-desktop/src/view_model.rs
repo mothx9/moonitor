@@ -139,11 +139,12 @@ impl Metric {
             value,
             detail: String::new(),
             provenance,
-            stale,
+            stale: stale && reading.is_some(),
         }
     }
     pub fn memory(snapshot: &moonitor_core::HostSnapshot, stale: bool) -> Self {
         let mut m = Self::percent("Memoria", None, stale);
+        m.stale = stale;
         match (
             &snapshot.memory.total_bytes,
             &snapshot.memory.available_bytes,

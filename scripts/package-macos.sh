@@ -12,6 +12,8 @@ fi
 app_dir="$repo_dir/.local/moonitor.app"
 mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources"
 cp target/release/moonitor "$app_dir/Contents/MacOS/moonitor"
+scripts/build-icons.sh
+cp .local/moonitor.icns "$app_dir/Contents/Resources/moonitor.icns"
 if [ ! -f .local/fleet.toml ]; then cp config/fleet.example.toml .local/fleet.toml; fi
 config_dir="$HOME/Library/Application Support/moonitor"
 mkdir -p "$config_dir"
@@ -34,6 +36,7 @@ cat > "$app_dir/Contents/Info.plist" <<'PLIST'
 <key>CFBundleExecutable</key><string>moonitor</string>
 <key>CFBundleIdentifier</key><string>dev.maiomascio.moonitor</string>
 <key>CFBundleName</key><string>moonitor</string>
+<key>CFBundleIconFile</key><string>moonitor.icns</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.1.0</string>
 <key>CFBundleVersion</key><string>1</string>
@@ -42,4 +45,6 @@ cat > "$app_dir/Contents/Info.plist" <<'PLIST'
 </dict></plist>
 PLIST
 codesign --force --sign - "$app_dir"
+codesign --verify --deep --strict "$app_dir"
+python3 scripts/build-receipt.py "$app_dir" .local/moonitor-build-receipt.json
 printf '%s\n' "$app_dir"

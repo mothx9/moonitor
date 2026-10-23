@@ -54,7 +54,14 @@ seconds. Snapshot transmission and basic counters run at one-second intervals.
 The initial process list contains bounded CPU-heavy processes and AI name matches,
 not an exhaustive process census.
 
-The UI has fleet, overview, process, AI, disk, network and recent-history views.
+The primary shell has Overview, Fleet, Workloads, Energy, Events, Explore and Settings.
+Processes, compute, sensors, AI, storage, network and history live in node detail.
+`ui/workbench.rs` owns the screen composition; `ui/chart.rs` renders receipt-time
+series with explicit gaps and nearest-sample inspection; `ui.rs` retains application
+state, reusable metric components and resource views. The chart window uses the
+UI polling timestamp, frozen in tests for reproducibility. W1 introduces no new
+collector API. The existing Iced image feature is enabled for the supplied brand
+asset; its two additional transitive packages are documented in assets/brand/README.md.
 Rendering uses Iced 0.14 and wgpu, with one-second state polling. Collection, SSH
 and SQLite run outside the UI thread. `view_model.rs` defines availability,
 ID selection, scene entities and typed percent metrics. `scene.rs` caches uploaded

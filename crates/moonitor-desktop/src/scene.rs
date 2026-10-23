@@ -1139,6 +1139,7 @@ impl iced::widget::canvas::Program<Message> for Scene {
     ) -> Vec<iced::widget::canvas::Geometry> {
         use iced::widget::canvas;
         let mut frame = canvas::Frame::new(renderer, bounds.size());
+        let mut labels: Vec<Rectangle> = Vec::new();
         let matrix = camera(self.camera, bounds.width / bounds.height, &self.devices);
         for (i, d) in self.devices.iter().enumerate() {
             let p = matrix.project_point3(
@@ -1153,17 +1154,67 @@ impl iced::widget::canvas::Program<Message> for Scene {
                         0.0,
                     ),
             );
-            let label = if self.devices.len() > 16 {
+            let label = if self.devices.len() > 8 || bounds.width < 300.0 {
                 format!("{:02}", i + 1)
             } else {
                 format!("{:02} {}", i + 1, d.label)
             };
+            let width = label.chars().count() as f32 * 5.7 + 14.0;
+            let x = ((p.x + 1.0) * bounds.width / 2.0)
+                .clamp(width / 2.0, (bounds.width - width / 2.0).max(width / 2.0));
+            let mut y = ((1.0 - p.y) * bounds.height / 2.0 - 12.0)
+                .clamp(10.0, (bounds.height - 10.0).max(10.0));
+            // Separate labels that project close together; never cover another name.
+            let desired_y = y;
+            for step in 0..20 {
+                let shift = if step % 2 == 0 {
+                    step as f32 * 10.0
+                } else {
+                    -(step as f32 + 1.0) * 10.0
+                };
+                let candidate = (desired_y + shift).clamp(10.0, (bounds.height - 10.0).max(10.0));
+                let rect = Rectangle {
+                    x: x - width / 2.0 - 2.0,
+                    y: candidate - 10.0,
+                    width: width + 4.0,
+                    height: 20.0,
+                };
+                if labels.iter().all(|other| !rect.intersects(other)) {
+                    y = candidate;
+                    break;
+                }
+            }
+            labels.push(Rectangle {
+                x: x - width / 2.0 - 2.0,
+                y: y - 10.0,
+                width: width + 4.0,
+                height: 20.0,
+            });
+            let plate = canvas::Path::rounded_rectangle(
+                iced::Point::new(x - width / 2.0, y - 9.0),
+                iced::Size::new(width, 18.0),
+                4.0.into(),
+            );
+            frame.fill(
+                &plate,
+                if self.dark {
+                    iced::Color::from_rgb(0.078, 0.125, 0.102)
+                } else {
+                    iced::Color::WHITE
+                },
+            );
+            let c = d.status.color();
+            frame.stroke(
+                &plate,
+                canvas::Stroke::default()
+                    .with_width(0.8)
+                    .with_color(iced::Color::from_rgb(c[0], c[1], c[2])),
+            );
             frame.fill_text(canvas::Text {
                 content: label,
-                position: iced::Point::new(
-                    (p.x + 1.0) * bounds.width / 2.0,
-                    (1.0 - p.y) * bounds.height / 2.0,
-                ),
+                position: iced::Point::new(x, y),
+                font: iced::Font::with_name("Inter"),
+                align_y: iced::alignment::Vertical::Center,
                 color: if self.dark {
                     iced::Color::from_rgb(0.918, 0.949, 0.925)
                 } else {

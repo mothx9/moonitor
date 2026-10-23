@@ -1,3 +1,5 @@
+<img src="assets/brand/moon-original.png" width="112" alt="Moonitor cratered crescent moon" />
+
 # moonitor
 
 A native system monitor for a small LAN/VPN homelab, with a dedicated view of
@@ -18,7 +20,7 @@ local AI workloads and their resource and energy use.
 
 The MacBook, Exon, Spark and Zima have produced real live samples together in the
 desktop. The iPhone is inventoried and explicitly marked as not instrumented.
-See [qualification](docs/qualification.md) for evidence and limitations.
+See [W0 qualification](docs/moonitor-w0-qualification.md) and [W1 qualification](docs/moonitor-w1-qualification.md) for evidence and limitations.
 
 ## Run
 
@@ -54,18 +56,24 @@ The installer keeps binaries by content hash and refuses to replace an unmanaged
 existing agent. The desktop starts remote agents on connection and closes its SSH
 children on exit. Missing agents and broken connections appear in the UI.
 
-## W0 consolidation
+## Native workbench · W0 / W1
 
 The design reference is the [professional upgrade blueprint](docs/moonitor-professional-upgrade-blueprint.md).
 See the [verified audit, decisions and W0–W4 gates](docs/moonitor-w0-audit-and-plan.md)
-and [W0 execution report](docs/moonitor-w0-qualification.md). W1–W4 are not implemented by this change.
+and [W0 execution report](docs/moonitor-w0-qualification.md). The [W1 interface redesign](docs/moonitor-w1-interface-design.md) introduces Overview, Fleet, Workloads, Energy, Events, Explore and Settings, with resource tabs inside node detail. W2–W4 remain planned.
 
 The Lab Map uses exactly the configured fleet (0–32 nodes), stable IDs and actual
 availability. Optional `visual_kind = "laptop" | "tower" | "compact" | "board" | "phone"`
 selects reusable geometry; its default is generic. Uninstrumented nodes do not
-count as monitored/offline. `--no-scene` or **Solo elenco** suspends the 3D scene.
+count as monitored/offline. `--no-scene` or **Elenco** suspends the 3D scene.
 Use `--theme light|dark` and `--size 1280x800` for repeatable UI checks.
-Keyboard: Cmd/Ctrl+1…6 selects a tab, Alt+Left/Right changes node, Tab/Shift+Tab moves focus.
+The Overview combines current metrics, an inspectable five-minute resource chart,
+a compact Lab Map and observed model residency. Fleet is a comparable inventory.
+The node switcher preserves the current page; map and inventory clicks open node detail.
+Workloads does not infer active requests from loaded models. Events explicitly explains
+that historical events are not yet stored. Energy exposes GPU board scope and coverage.
+Use `--section fleet|workloads|energy|events|explore|settings|device` to open a view.
+Keyboard: Cmd/Ctrl+1…7 selects a primary section, Alt+Left/Right changes node, Tab/Shift+Tab moves focus.
 
 ## Development
 
@@ -76,7 +84,7 @@ cargo build --release --locked -p moonitor-agent -p moonitor-desktop
 ```
 
 Toolchain is pinned in `rust-toolchain.toml`; use the committed `Cargo.lock`.
-The first visual run records candidate baselines in `.local/qa/w0/visual`; it is not
+The first visual run records candidate baselines in `.local/qa/w1/visual`; it is not
 human approval. Subsequent runs compare pixels. Synthetic fixtures exist only in
 `#[cfg(test)]` modules. Real screenshots use `--screenshot FILE.png --exit-after 12`.
 

@@ -44,6 +44,7 @@ pub struct DisplayOptions {
     pub size: iced::Size,
     pub dark: bool,
     pub scene_visible: bool,
+    pub section: Option<Section>,
 }
 impl Default for DisplayOptions {
     fn default() -> Self {
@@ -51,12 +52,36 @@ impl Default for DisplayOptions {
             size: iced::Size::new(1380.0, 940.0),
             dark: false,
             scene_visible: true,
+            section: None,
         }
     }
+}
+fn app_icon() -> Option<window::Icon> {
+    let pixels = image::load_from_memory(include_bytes!("../assets/moonitor-256.png"))
+        .ok()?
+        .into_rgba8();
+    window::icon::from_rgba(pixels.to_vec(), pixels.width(), pixels.height()).ok()
+}
+fn brand_icon() -> widget::Image {
+    static ICON: std::sync::OnceLock<widget::image::Handle> = std::sync::OnceLock::new();
+    let handle = ICON.get_or_init(|| {
+        // RGBA handles upload synchronously: the first frame must contain the brand too.
+        let pixels = image::load_from_memory(include_bytes!("../assets/moonitor-128.png"))
+            .expect("embedded brand PNG")
+            .into_rgba8();
+        widget::image::Handle::from_rgba(pixels.width(), pixels.height(), pixels.into_raw())
+    });
+    widget::image(handle.clone()).width(34).height(34)
 }
 fn tone(color: Color, theme: &Theme) -> Color {
     if !theme.extended_palette().is_dark {
         return color;
+    }
+    if color == AMBER {
+        return Color::from_rgb(0.94, 0.72, 0.40);
+    }
+    if color == Color::from_rgb(0.98, 0.94, 0.86) {
+        return Color::from_rgb(0.20, 0.14, 0.09);
     }
     if color == Color::from_rgb(0.72, 0.25, 0.23) {
         return Color::from_rgb(0.94, 0.57, 0.53);
@@ -150,6 +175,8 @@ fn app_theme(dark: bool) -> Theme {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Tab {
     Overview,
+    Compute,
+    Sensors,
     Processes,
     Ai,
     Disks,
@@ -160,6 +187,8 @@ impl Tab {
     pub fn parse(s: &str) -> Option<Self> {
         Some(match s {
             "overview" => Self::Overview,
+            "compute" => Self::Compute,
+            "sensors" => Self::Sensors,
             "processes" => Self::Processes,
             "ai" => Self::Ai,
             "disks" => Self::Disks,
@@ -170,7 +199,9 @@ impl Tab {
     }
     fn label(self) -> &'static str {
         match self {
-            Self::Overview => "Panoramica",
+            Self::Overview => "Summary",
+            Self::Compute => "Compute",
+            Self::Sensors => "Sensori",
             Self::Processes => "Processi",
             Self::Ai => "AI locale",
             Self::Disks => "Archiviazione",
@@ -178,19 +209,11 @@ impl Tab {
             Self::History => "Storico",
         }
     }
-    fn icon(self) -> &'static str {
-        match self {
-            Self::Overview => "overview",
-            Self::Processes => "process",
-            Self::Ai => "ai",
-            Self::Disks => "disk",
-            Self::Network => "network",
-            Self::History => "history",
-        }
-    }
 }
-const TABS: [Tab; 6] = [
+const TABS: [Tab; 8] = [
     Tab::Overview,
+    Tab::Compute,
+    Tab::Sensors,
     Tab::Ai,
     Tab::Processes,
     Tab::Disks,
@@ -203,10 +226,13 @@ pub enum Message {
     CaptureScreenshot,
     Frame,
     Select(String),
+    SwitchNode(String),
     ToggleScene,
     Focus(bool),
     NextNode(i32),
     Tab(Tab),
+    Navigate(Section),
+    Theme(bool),
     Filter(String),
     Sort(bool),
     Orbit(f32),
@@ -225,10 +251,12 @@ pub struct App {
     scene_visible: bool,
     dark: bool,
     tab: Tab,
+    section: Section,
     filter: String,
     sort_memory: bool,
     camera: Camera,
     started: Instant,
+    view_time_ms: u64,
     screenshot: Option<PathBuf>,
     exit_after: Option<f32>,
     window: Option<window::Id>,
@@ -256,10 +284,16 @@ pub fn run(
                 dropped_events: 0,
                 pending_samples: Vec::new(),
                 tab,
+                section: display.section.unwrap_or(if tab == Tab::Overview {
+                    Section::Overview
+                } else {
+                    Section::Device
+                }),
                 filter: String::new(),
                 sort_memory: false,
                 camera: Camera::default(),
                 started: Instant::now(),
+                view_time_ms: now_ms(),
                 screenshot: screenshot.clone(),
                 exit_after,
                 window: None,
@@ -268,9 +302,10 @@ pub fn run(
         App::update,
         App::view,
     )
-    .title("moonitor")
+    .title("moonitor · Compute Observatory")
     .window(window::Settings {
         size: display.size,
+        icon: app_icon(),
         min_size: Some(iced::Size::new(1160.0, 760.0)),
         position: window::Position::Centered,
         ..Default::default()
@@ -307,8 +342,8 @@ pub fn run(
                     Key::Character(ref c) if modifiers.command() => c
                         .parse::<usize>()
                         .ok()
-                        .filter(|i| (1..=6).contains(i))
-                        .map(|i| Message::Tab(TABS[i - 1])),
+                        .filter(|i| (1..=7).contains(i))
+                        .map(|i| Message::Navigate(SECTIONS[i - 1])),
                     _ => None,
                 }
             }),
@@ -321,6 +356,9 @@ impl App {
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::Tick => {
+                if self._engine.is_some() {
+                    self.view_time_ms = now_ms();
+                }
                 if let Some(engine) = &self._engine {
                     let shared = engine.state.lock().unwrap();
                     if std::env::var_os("MOONITOR_RENDER_DIAGNOSTICS").is_some() {
@@ -395,6 +433,7 @@ impl App {
             Message::Select(id) => {
                 if self.nodes.iter().any(|n| n.config.id == id) {
                     self.selected = Some(id);
+                    self.section = Section::Device;
                 }
             }
             Message::ToggleScene => self.scene_visible = !self.scene_visible,
@@ -404,6 +443,11 @@ impl App {
                 } else {
                     widget::operation::focus_next()
                 };
+            }
+            Message::SwitchNode(id) => {
+                if self.nodes.iter().any(|n| n.config.id == id) {
+                    self.selected = Some(id);
+                }
             }
             Message::NextNode(delta) => {
                 if !self.nodes.is_empty() {
@@ -417,7 +461,12 @@ impl App {
                     self.selected = Some(self.nodes[next].config.id.clone());
                 }
             }
-            Message::Tab(tab) => self.tab = tab,
+            Message::Tab(tab) => {
+                self.tab = tab;
+                self.section = Section::Device;
+            }
+            Message::Navigate(section) => self.section = section,
+            Message::Theme(dark) => self.dark = dark,
             Message::Filter(s) => self.filter = s,
             Message::Sort(memory) => self.sort_memory = memory,
             Message::Orbit(dx) => self.camera.yaw += dx,
@@ -427,265 +476,7 @@ impl App {
         Task::none()
     }
     fn view(&self) -> Element<'_, Message> {
-        let fleet = FleetViewModel::new(&self.nodes, self.selected.as_deref(), Instant::now());
-        let Some(node) = self
-            .nodes
-            .iter()
-            .find(|n| Some(n.config.id.as_str()) == fleet.selected_id.as_deref())
-        else {
-            return container(column![text("Nessun dispositivo configurato").size(24), text("Aggiungi un nodo local o ssh nel file fleet.toml. I dispositivi senza agente possono essere censiti come unavailable.").size(14)].spacing(16)).padding(32).into();
-        };
-        let header = row![
-            column![
-                eyebrow("WORKSPACE / HOMELAB"),
-                text(self.tab.label()).size(34).font(STRONG)
-            ]
-            .spacing(8),
-            Space::new().width(Fill),
-            pill(
-                &format!(
-                    "{} / {} monitorati online · {} censiti",
-                    fleet.online,
-                    fleet.monitored,
-                    fleet.devices.len()
-                ),
-                GREEN
-            ),
-            text("LOCALE  /  VPN").size(10).tone(MUTED)
-        ]
-        .spacing(20)
-        .align_y(alignment::Vertical::Center);
-        let mut body = column![header].spacing(22).width(Fill);
-        if let Some(error) = &self.storage_error {
-            body = body.push(notice(&format!("Storico non disponibile: {error}")));
-        }
-        if self.dropped_events > 0 {
-            body = body.push(notice(&format!(
-                "Coda di acquisizione piena: {} aggiornamenti scartati",
-                self.dropped_events
-            )));
-        }
-        if self.tab == Tab::Overview {
-            let scene = Scene {
-                selected: fleet.selected_id.clone(),
-                devices: fleet.devices.clone(),
-                dark: self.dark,
-                camera: self.camera,
-            };
-            let controls = row![
-                text("IL TUO HOMELAB").size(10).font(MEDIUM).tone(MUTED),
-                Space::new().width(Fill),
-                small_button(
-                    if self.scene_visible {
-                        "Solo elenco"
-                    } else {
-                        "Mostra 3D"
-                    },
-                    Message::ToggleScene
-                ),
-                small_button("−", Message::Zoom(-0.1)),
-                small_button("+", Message::Zoom(0.1)),
-                small_button("Ripristina", Message::ResetCamera)
-            ]
-            .spacing(6)
-            .align_y(alignment::Vertical::Center);
-            let scene_panel = container(
-                column![
-                    container(controls).padding([14, 18]),
-                    if self.scene_visible {
-                        Element::from(widget::stack![
-                            widget::shader(scene.clone()).width(Fill).height(300),
-                            canvas(scene).width(Fill).height(300)
-                        ])
-                    } else {
-                        Element::from(container(self.scene_list()).height(300).padding(18))
-                    },
-                    container(
-                        row![
-                            text(format!("{:02}", self.nodes.len()))
-                                .font(STRONG)
-                                .size(12)
-                                .tone(GREEN),
-                            text("DISPOSITIVI").size(10).tone(MUTED),
-                            Space::new().width(Fill),
-                            text(if self.scene_visible {
-                                "Trascina per ruotare · clicca per selezionare"
-                            } else {
-                                "Seleziona un dispositivo · elenco sincronizzato"
-                            })
-                            .size(10)
-                            .tone(MUTED)
-                        ]
-                        .spacing(8)
-                    )
-                    .padding([10, 18])
-                ]
-                .spacing(0),
-            )
-            .style(|theme| {
-                themed_panel(
-                    theme,
-                    container::Style {
-                        background: Some(Color::from_rgb(0.95, 0.956, 0.938).into()),
-                        border: Border {
-                            radius: 18.into(),
-                            color: LINE,
-                            width: 1.0,
-                        },
-                        ..Default::default()
-                    },
-                )
-            })
-            .width(Fill);
-            body = body.push(row![scene_panel, self.inspector(node)].spacing(16));
-        } else {
-            body = body.push(self.device_strip()).push(self.node_heading(node));
-        }
-        if self.tab == Tab::Overview {
-            body = body.push(self.device_strip());
-        }
-        body = body.push(self.details(node));
-        let main = scrollable(container(body).padding([28, 28]).width(Fill)).height(Fill);
-        container(row![self.sidebar(), main].spacing(0))
-            .style(|theme| {
-                themed_panel(
-                    theme,
-                    container::Style {
-                        background: Some(BG.into()),
-                        text_color: Some(INK),
-                        ..Default::default()
-                    },
-                )
-            })
-            .width(Fill)
-            .height(Fill)
-            .into()
-    }
-    fn sidebar(&self) -> Element<'_, Message> {
-        let brand = row![
-            canvas(Icon("moon", LIME)).width(28).height(28),
-            text("moonitor").size(23).font(STRONG).tone(Color::WHITE)
-        ]
-        .spacing(8)
-        .align_y(alignment::Vertical::Center);
-        let mut nav = column![
-            container(brand).padding([8, 0]),
-            text("PERSONAL OBSERVATORY")
-                .size(8)
-                .tone(Color::from_rgb(0.49, 0.60, 0.53)),
-            Space::new().height(30),
-            text("MONITORAGGIO")
-                .size(9)
-                .tone(Color::from_rgb(0.47, 0.57, 0.51))
-        ]
-        .spacing(10);
-        for tab in TABS {
-            let chosen = self.tab == tab;
-            let color = if chosen {
-                LIME
-            } else {
-                Color::from_rgb(0.70, 0.76, 0.71)
-            };
-            nav = nav.push(
-                button(
-                    row![
-                        canvas(Icon(tab.icon(), color)).width(18).height(18),
-                        text(tab.label()).size(12).font(MEDIUM)
-                    ]
-                    .spacing(12)
-                    .align_y(alignment::Vertical::Center),
-                )
-                .on_press(Message::Tab(tab))
-                .width(Fill)
-                .padding([13, 12])
-                .style(move |theme, state| {
-                    themed_button(
-                        theme,
-                        button::Style {
-                            background: Some(
-                                if chosen {
-                                    Color::from_rgb(0.16, 0.23, 0.18)
-                                } else if matches!(state, button::Status::Hovered) {
-                                    Color::from_rgb(0.12, 0.18, 0.14)
-                                } else {
-                                    NAV
-                                }
-                                .into(),
-                            ),
-                            text_color: color,
-                            border: Border {
-                                radius: 9.into(),
-                                ..Default::default()
-                            },
-                            ..Default::default()
-                        },
-                    )
-                }),
-            );
-        }
-        nav = nav.push(Space::new().height(32)).push(
-            text("I TUOI DISPOSITIVI")
-                .size(9)
-                .tone(Color::from_rgb(0.47, 0.57, 0.51)),
-        );
-        for node in &self.nodes {
-            let (_, color) = status(node);
-            nav = nav.push(
-                button(
-                    row![
-                        text("•").tone(color).size(15),
-                        text(&node.config.label).size(11).tone(
-                            if self.selected.as_deref() == Some(node.config.id.as_str()) {
-                                Color::WHITE
-                            } else {
-                                Color::from_rgb(0.58, 0.67, 0.61)
-                            }
-                        )
-                    ]
-                    .spacing(10),
-                )
-                .on_press(Message::Select(node.config.id.clone()))
-                .style(button::text)
-                .padding([7, 9])
-                .width(Fill),
-            );
-        }
-        let footer = column![
-            row![
-                text("•").tone(LIME),
-                text("Raccolta attiva")
-                    .size(11)
-                    .tone(Color::from_rgb(0.73, 0.81, 0.74))
-            ]
-            .spacing(8),
-            text("1 s · SQLite locale")
-                .size(10)
-                .tone(Color::from_rgb(0.44, 0.55, 0.48)),
-            text("moonitor  /  0.1.0")
-                .size(9)
-                .tone(Color::from_rgb(0.37, 0.47, 0.41))
-        ]
-        .spacing(10);
-        container(
-            column![
-                scrollable(nav).height(Fill),
-                container(footer).padding([14, 0])
-            ]
-            .spacing(0),
-        )
-        .padding([24, 18])
-        .width(202)
-        .height(Fill)
-        .style(|theme| {
-            themed_panel(
-                theme,
-                container::Style {
-                    background: Some(NAV.into()),
-                    ..Default::default()
-                },
-            )
-        })
-        .into()
+        self.workbench_view()
     }
     fn scene_list(&self) -> Element<'_, Message> {
         let mut rows = Column::new().spacing(8);
@@ -702,139 +493,31 @@ impl App {
                 .on_press(Message::Select(node.config.id.clone()))
                 .width(Fill)
                 .padding(10)
-                .style(button::secondary),
+                .style(|theme, state| {
+                    themed_button(
+                        theme,
+                        button::Style {
+                            background: Some(
+                                if matches!(state, button::Status::Hovered) {
+                                    BG
+                                } else {
+                                    PAPER
+                                }
+                                .into(),
+                            ),
+                            text_color: INK,
+                            border: Border {
+                                color: LINE,
+                                width: 0.7,
+                                radius: 6.0.into(),
+                            },
+                            ..Default::default()
+                        },
+                    )
+                }),
             );
         }
         scrollable(rows).height(Fill).into()
-    }
-    fn device_strip(&self) -> Element<'_, Message> {
-        let mut devices = Row::new().spacing(10);
-        for (i, n) in self.nodes.iter().enumerate() {
-            let chosen = self.selected.as_deref() == Some(n.config.id.as_str());
-            let (state, color) = status(n);
-            let cpu = n
-                .sample
-                .as_ref()
-                .and_then(|s| s.cpu_utilization_percent.value().copied());
-            let content = column![
-                row![
-                    text(format!("{:02}", i + 1)).size(10).tone(MUTED),
-                    Space::new().width(Fill),
-                    text("•").tone(color)
-                ]
-                .align_y(alignment::Vertical::Center),
-                text(&n.config.label).font(STRONG).size(13),
-                row![
-                    text(format!("{} · CPU {}", state, pct(cpu)))
-                        .size(11)
-                        .tone(if n.live() { INK } else { color }),
-                ]
-            ]
-            .spacing(10);
-            devices = devices.push(
-                button(content)
-                    .on_press(Message::Select(n.config.id.clone()))
-                    .padding(14)
-                    .width(190)
-                    .style(move |theme, s| {
-                        themed_button(
-                            theme,
-                            button::Style {
-                                background: Some(
-                                    if chosen {
-                                        Color::from_rgb(0.91, 0.95, 0.88)
-                                    } else if matches!(s, button::Status::Hovered) {
-                                        Color::from_rgb(0.94, 0.96, 0.92)
-                                    } else {
-                                        PAPER
-                                    }
-                                    .into(),
-                                ),
-                                text_color: INK,
-                                border: Border {
-                                    color: if chosen { GREEN } else { LINE },
-                                    width: 1.0,
-                                    radius: 12.into(),
-                                },
-                                ..Default::default()
-                            },
-                        )
-                    }),
-            );
-        }
-        scrollable(devices)
-            .direction(scrollable::Direction::Horizontal(
-                scrollable::Scrollbar::default(),
-            ))
-            .into()
-    }
-    fn inspector<'a>(&self, n: &'a NodeState) -> Element<'a, Message> {
-        let (state, color) = status(n);
-        let mut content = column![
-            row![
-                eyebrow("DISPOSITIVO SELEZIONATO"),
-                Space::new().width(Fill),
-                text("•").tone(color)
-            ]
-            .spacing(8),
-            text(&n.config.label).size(25).font(STRONG),
-            text(state).size(10).font(MEDIUM).tone(color)
-        ]
-        .spacing(10);
-        if let Some(s) = &n.sample {
-            content = content
-                .push(text(short_cpu(&s.cpu_name)).size(11).tone(MUTED))
-                .push(Space::new().height(8));
-            let total = s.memory.total_bytes.value().copied();
-            let used = total
-                .zip(s.memory.available_bytes.value().copied())
-                .map(|(t, a)| t.saturating_sub(a));
-            let stale = !n.live();
-            let mut cpu = Metric::percent("CPU", Some(&s.cpu_utilization_percent), stale);
-            cpu.detail = format!("{} core logici", s.cpu_cores_percent.len());
-            content = content.push(metric(cpu, GREEN));
-            let mut memory = Metric::memory(s, stale);
-            memory.detail = format!("{} / {}", bytes(used), bytes(total));
-            content = content.push(metric(memory, Color::from_rgb(0.49, 0.58, 0.41)));
-            content = content.push(metric(
-                Metric::gpu(s, stale),
-                Color::from_rgb(0.51, 0.58, 0.64),
-            ));
-            content = content.push(
-                row![
-                    text("Potenza GPU").size(11).tone(MUTED),
-                    Space::new().width(Fill),
-                    text(watts(gpu_power(s))).size(15).font(MEDIUM)
-                ]
-                .align_y(alignment::Vertical::Center),
-            );
-            content = content.push(text("Intero dispositivo: N/D").size(9).tone(MUTED));
-        } else {
-            content = content
-                .push(Space::new().height(18))
-                .push(text(&n.config.note).size(13).tone(MUTED))
-                .push(
-                    text(
-                        n.error
-                            .as_deref()
-                            .unwrap_or("In attesa dei primi campioni."),
-                    )
-                    .size(11)
-                    .tone(MUTED),
-                );
-        }
-        if n.sample.is_some() && !n.live() {
-            content = content.push(
-                text("Ultimo campione conservato · dati obsoleti")
-                    .size(10)
-                    .tone(AMBER),
-            );
-        }
-        container(content)
-            .padding(22)
-            .width(286)
-            .style(panel)
-            .into()
     }
     fn node_heading<'a>(&self, n: &'a NodeState) -> Element<'a, Message> {
         let (state, color) = status(n);
@@ -870,7 +553,7 @@ impl App {
                     text(status(n).0).size(18).font(STRONG),
                     text(&n.config.note).tone(MUTED).size(12),
                     text("Questa vista richiede un agente sul dispositivo. Controlla il tipo di nodo e l'alias SSH in fleet.toml; un dispositivo senza agente resta visibile nell'inventario.").size(13),
-                    small_button("Torna alla panoramica", Message::Tab(Tab::Overview))
+                    small_button("Vai alla flotta", Message::Navigate(Section::Fleet))
                 ]
                 .spacing(12),
             )
@@ -888,9 +571,21 @@ impl App {
                     ]
                     .align_y(alignment::Vertical::Center),
                     row![
-                        plot("CPU", &n.history, 0, GREEN),
-                        plot("Memoria", &n.history, 1, Color::from_rgb(0.49, 0.58, 0.41)),
-                        plot("GPU", &n.history, 2, Color::from_rgb(0.51, 0.58, 0.64))
+                        plot("CPU", &n.history, self.view_time_ms, 0, GREEN),
+                        plot(
+                            "Memoria",
+                            &n.history,
+                            self.view_time_ms,
+                            1,
+                            Color::from_rgb(0.49, 0.58, 0.41)
+                        ),
+                        plot(
+                            "GPU",
+                            &n.history,
+                            self.view_time_ms,
+                            2,
+                            Color::from_rgb(0.51, 0.58, 0.64)
+                        )
                     ]
                     .spacing(24)
                 ]
@@ -920,6 +615,76 @@ impl App {
                     .align_y(alignment::Vertical::Center),
                 );
                 card(content).into()
+            }
+            Tab::Compute => {
+                let mut c =
+                    column![text("CPU · carico per core").size(18).font(STRONG)].spacing(14);
+                for (i, value) in s.cpu_cores_percent.iter().enumerate() {
+                    let reading = Reading::reported(
+                        *value as f64,
+                        "sysinfo · CPU core",
+                        s.sampled_at_unix_ms,
+                    );
+                    c = c.push(metric(
+                        Metric::percent(&format!("Core {i}"), Some(&reading), !n.live()),
+                        GREEN,
+                    ));
+                }
+                for gpu in &s.gpus {
+                    c = c.push(card(
+                        column![
+                            text(&gpu.name).size(17).font(STRONG),
+                            metric(
+                                Metric::percent(
+                                    "Utilizzo GPU",
+                                    Some(&gpu.utilization_percent),
+                                    !n.live()
+                                ),
+                                GREEN
+                            )
+                        ]
+                        .spacing(12),
+                    ));
+                }
+                c.into()
+            }
+            Tab::Sensors => {
+                let mut c = column![text("Sensori disponibili").size(18).font(STRONG)].spacing(14);
+                if s.temperatures.is_empty()
+                    && s.pressure.is_empty()
+                    && s.battery_percent.value().is_none()
+                {
+                    c = c.push(notice(
+                        "Questo agente non espone sensori aggiuntivi su questo nodo.",
+                    ));
+                }
+                for t in &s.temperatures {
+                    c = c.push(table_row(
+                        [
+                            &t.label,
+                            &format!("{:.1} °C", t.celsius),
+                            "Temperatura",
+                            "Sistema",
+                        ],
+                        false,
+                    ));
+                }
+                for p in &s.pressure {
+                    c = c.push(table_row(
+                        [
+                            &p.resource,
+                            &format!("{:.1}%", p.some_avg10_percent),
+                            "Stallo PSI · avg10",
+                            "Linux",
+                        ],
+                        false,
+                    ));
+                }
+                c.push(metric(
+                    Metric::percent("Batteria", Some(&s.battery_percent), !n.live()),
+                    GREEN,
+                ))
+                .into()
             }
             Tab::Processes => self.processes(s, false),
             Tab::Ai => {
@@ -1080,9 +845,21 @@ impl App {
                 let plots = card(
                     column![
                         text("Utilizzo · ultimi 5 minuti").size(18).font(STRONG),
-                        plot("CPU", &n.history, 0, GREEN),
-                        plot("Memoria", &n.history, 1, Color::from_rgb(0.49, 0.58, 0.41)),
-                        plot("GPU", &n.history, 2, Color::from_rgb(0.51, 0.58, 0.64)),
+                        plot("CPU", &n.history, self.view_time_ms, 0, GREEN),
+                        plot(
+                            "Memoria",
+                            &n.history,
+                            self.view_time_ms,
+                            1,
+                            Color::from_rgb(0.49, 0.58, 0.41)
+                        ),
+                        plot(
+                            "GPU",
+                            &n.history,
+                            self.view_time_ms,
+                            2,
+                            Color::from_rgb(0.51, 0.58, 0.64)
+                        ),
                         text("SQLite locale · riepilogo ogni 5 s · conservazione 7 giorni")
                             .size(11)
                             .tone(MUTED)
@@ -1205,14 +982,14 @@ fn panel(theme: &Theme) -> container::Style {
             border: Border {
                 color: LINE,
                 width: 1.0,
-                radius: 16.into(),
+                radius: 12.into(),
             },
             ..Default::default()
         },
     )
 }
 fn card<'a>(content: impl Into<Element<'a, Message>>) -> widget::Container<'a, Message> {
-    container(content).padding(22).width(Fill).style(panel)
+    container(content).padding(18).width(Fill).style(panel)
 }
 fn eyebrow(s: &str) -> widget::Text<'_> {
     text(s).size(9).font(MEDIUM).tone(MUTED)
@@ -1296,18 +1073,16 @@ fn metric<'a>(metric: Metric, c: Color) -> Element<'a, Message> {
     ]
     .spacing(7);
     if let Some(value) = metric.value {
-        content = content.push(
-            progress_bar(0.0..=100.0, value as f32)
-                .girth(4)
-                .style(move |_| progress_bar::Style {
-                    background: LINE.into(),
-                    bar: c.into(),
-                    border: Border {
-                        radius: 2.into(),
-                        ..Default::default()
-                    },
-                }),
-        );
+        content = content.push(progress_bar(0.0..=100.0, value as f32).girth(4).style(
+            move |theme| progress_bar::Style {
+                background: tone(LINE, theme).into(),
+                bar: c.into(),
+                border: Border {
+                    radius: 2.into(),
+                    ..Default::default()
+                },
+            },
+        ));
     } else {
         content = content.push(text(metric.provenance.clone()).size(11).tone(MUTED));
     }
@@ -1336,7 +1111,7 @@ fn mini_stat<'a>(label: &str, value: &str) -> Element<'a, Message> {
     .into()
 }
 fn table_row(values: [&str; 4], heading: bool) -> Element<'static, Message> {
-    let mut r = Row::new().spacing(20);
+    let mut r = Row::new().spacing(20).width(Fill);
     for (i, v) in values.iter().enumerate() {
         r = r.push(
             text(v.to_string())
@@ -1376,12 +1151,6 @@ fn gpu_power(s: &HostSnapshot) -> Option<f64> {
         .collect::<Option<Vec<_>>>()?;
     (!readings.is_empty()).then(|| readings.iter().sum())
 }
-fn short_cpu(s: &str) -> String {
-    s.replace("AMD Ryzen 9 ", "Ryzen 9 ")
-        .replace(" 12-Core Processor", "")
-        .replace("Intel(R) Celeron(R) CPU ", "Celeron ")
-        .replace(" @ 1.10GHz", "")
-}
 struct Trend {
     points: Vec<(f32, Option<f64>)>,
     color: Color,
@@ -1389,10 +1158,11 @@ struct Trend {
 fn plot<'a>(
     label: &str,
     points: &std::collections::VecDeque<HistoryPoint>,
+    end_ms: u64,
     field: u8,
     color: Color,
 ) -> Element<'a, Message> {
-    let since = now_ms().saturating_sub(300_000);
+    let since = end_ms.saturating_sub(300_000);
     let data: Vec<_> = points
         .iter()
         .filter(|p| p.received_at_ms >= since)
@@ -1544,6 +1314,31 @@ impl canvas::Program<Message> for Icon {
                     line((4., 15.), (20., 15.));
                     line((15., 18.), (17., 18.));
                 }
+                "energy" => {
+                    line((14., 2.), (5., 14.));
+                    line((5., 14.), (11., 14.));
+                    line((11., 14.), (10., 22.));
+                    line((10., 22.), (20., 10.));
+                    line((20., 10.), (13., 10.));
+                    line((13., 10.), (14., 2.));
+                }
+                "events" => {
+                    line((4., 5.), (20., 5.));
+                    line((20., 5.), (20., 18.));
+                    line((20., 18.), (4., 18.));
+                    line((4., 18.), (4., 5.));
+                    line((8., 9.), (16., 9.));
+                    line((8., 13.), (13., 13.));
+                    line((8., 21.), (16., 21.));
+                }
+                "settings" => {
+                    line((3., 6.), (21., 6.));
+                    line((3., 12.), (21., 12.));
+                    line((3., 18.), (21., 18.));
+                    line((8., 3.), (8., 9.));
+                    line((16., 9.), (16., 15.));
+                    line((10., 15.), (10., 21.));
+                }
                 "history" => {
                     line((3., 18.), (7., 14.));
                     line((7., 14.), (11., 16.));
@@ -1569,5 +1364,9 @@ impl canvas::Program<Message> for Icon {
     }
 }
 
+mod chart;
+mod workbench;
+use workbench::SECTIONS;
+pub use workbench::Section;
 #[cfg(test)]
 mod qa;

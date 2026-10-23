@@ -17,7 +17,7 @@ serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
 toml = "1.1.6"
-iced = { version = "0.14.0", default-features = false, features = ["wgpu", "tokio", "canvas", "x11", "wayland", "crisp"] }
+iced = { version = "0.14.0", default-features = false, features = ["wgpu", "image-without-codecs", "tokio", "canvas", "x11", "wayland", "crisp"] }
 bytemuck = { version = "1.25", features = ["derive"] }
 glam = { version = "0.30", features = ["bytemuck"] }
 image = { version = "0.25.10", default-features = false, features = ["png"] }
