@@ -1,36 +1,39 @@
-<p align="center">
-  <img src="assets/brand/moon-original.png" width="140" alt="Moonitor — cratered crescent moon" />
-</p>
-
-<h1 align="center">Moonitor</h1>
+<h1 align="center">
+  <img src="assets/brand/moon-original.png" width="64" height="64" align="absmiddle" alt="Moonitor crescent moon" />
+  Moonitor
+</h1>
 
 <p align="center">
   <strong>Your compute lab, in focus.</strong><br />
-  Native observability for hardware, GPUs and local AI across your LAN and VPN.
+  <sub>Native observability · Hardware · GPUs · Local AI · LAN &amp; VPN</sub>
 </p>
 
 <p align="center">
-  <a href="https://github.com/mothx9/moonitor/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/CI-macOS%20%C2%B7%20Linux-657b73?style=flat-square&amp;logo=githubactions&amp;logoColor=white" alt="CI on macOS and Linux" /></a>
-  <a href="rust-toolchain.toml"><img src="https://img.shields.io/badge/Rust-1.96-9bb98a?style=flat-square&amp;logo=rust&amp;logoColor=white" alt="Rust 1.96" /></a>
-  <a href="#architecture"><img src="https://img.shields.io/badge/native%20UI-Iced%20%2B%20wgpu-657b73?style=flat-square" alt="Native UI: Iced and wgpu" /></a>
-  <a href="Cargo.toml"><img src="https://img.shields.io/badge/version-0.1.0-526b88?style=flat-square" alt="Version 0.1.0" /></a>
-  <a href="#roadmap"><img src="https://img.shields.io/badge/status-in%20development-b39460?style=flat-square" alt="In development" /></a>
+  <a href="https://github.com/mothx9/moonitor/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/CI-macOS%20%C2%B7%20Linux-657b73?style=flat-square&amp;logo=githubactions&amp;logoColor=white" height="20" alt="CI on macOS and Linux" /></a>
+  <a href="rust-toolchain.toml"><img src="https://img.shields.io/badge/Rust-1.96-9bb98a?style=flat-square&amp;logo=rust&amp;logoColor=white" height="20" alt="Rust 1.96" /></a>
+  <a href="#architecture"><img src="https://img.shields.io/badge/native%20UI-Iced%20%2B%20wgpu-657b73?style=flat-square" height="20" alt="Native UI: Iced and wgpu" /></a>
+  <a href="Cargo.toml"><img src="https://img.shields.io/badge/version-0.1.0-526b88?style=flat-square" height="20" alt="Version 0.1.0" /></a>
+  <a href="#roadmap"><img src="https://img.shields.io/badge/status-in%20development-b39460?style=flat-square" height="20" alt="In development" /></a>
 </p>
 
 <p align="center">
-  <a href="#the-workbench">Workbench</a> ·
-  <a href="#quick-start">Quick start</a> ·
-  <a href="#connect-your-fleet">Connect your fleet</a> ·
-  <a href="#architecture">Architecture</a> ·
-  <a href="#roadmap">Roadmap</a> ·
-  <a href="#documentation">Docs</a>
+  <sub>
+    <a href="#the-workbench">Workbench</a> ·
+    <a href="#quick-start">Quick start</a> ·
+    <a href="#connect-your-fleet">Connect your fleet</a> ·
+    <a href="#architecture">Architecture</a> ·
+    <a href="#roadmap">Roadmap</a> ·
+    <a href="#documentation">Docs</a>
+  </sub>
 </p>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/overview-dark.png" />
-  <source media="(prefers-color-scheme: light)" srcset="docs/assets/overview-light.png" />
-  <img src="docs/assets/overview-light.png" alt="Moonitor Overview: fleet status, CPU/RAM/GPU timeline, interactive Lab Map, observed models and source availability" width="1440" />
-</picture>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/overview-dark.png" />
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/overview-light.png" />
+    <img src="docs/assets/overview-light.png" alt="Moonitor Overview: fleet status, CPU/RAM/GPU timeline, interactive Lab Map, observed models and source availability" width="960" />
+  </picture>
+</p>
 
 <p align="center">
   <sub>Actual native app · live telemetry · 23 October 2026 · <a href="docs/assets/overview-light.png">Light</a> / <a href="docs/assets/overview-dark.png">Dark</a></sub>
