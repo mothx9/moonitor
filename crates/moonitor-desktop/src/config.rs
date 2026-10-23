@@ -22,7 +22,7 @@ pub struct NodeConfig {
     pub note: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub nodes: Vec<NodeConfig>,

@@ -1,11 +1,29 @@
 mod config;
 mod engine;
+mod scene;
 mod ui;
 
 use anyhow::{Context, Result, bail};
 use std::path::PathBuf;
 
+struct Diagnostics;
+impl log::Log for Diagnostics {
+    fn enabled(&self, m: &log::Metadata<'_>) -> bool {
+        m.level() <= log::Level::Info && m.target().starts_with("iced_wgpu")
+    }
+    fn log(&self, r: &log::Record<'_>) {
+        if self.enabled(r.metadata()) {
+            eprintln!("{}: {}", r.target(), r.args());
+        }
+    }
+    fn flush(&self) {}
+}
 fn main() -> Result<()> {
+    if std::env::var_os("MOONITOR_RENDER_DIAGNOSTICS").is_some() {
+        static DIAGNOSTICS: Diagnostics = Diagnostics;
+        let _ = log::set_logger(&DIAGNOSTICS);
+        log::set_max_level(log::LevelFilter::Info);
+    }
     let mut config_path = None;
     let mut data_dir = None;
     let mut screenshot = None;
@@ -60,33 +78,18 @@ fn main() -> Result<()> {
             std::fs::set_permissions(&data_dir, std::fs::Permissions::from_mode(0o700))?;
         }
     }
-    let options = eframe::NativeOptions {
-        viewport: eframe::egui::ViewportBuilder::default()
-            .with_title("moonitor")
-            .with_inner_size([1240.0, 840.0])
-            .with_min_inner_size([980.0, 680.0]),
-        renderer: eframe::Renderer::Glow,
-        ..Default::default()
-    };
-    eframe::run_native(
-        "moonitor",
-        options,
-        Box::new(move |cc| {
-            ui::set_style(&cc.egui_ctx);
-            let selected = selected_node
-                .as_ref()
-                .and_then(|id| config.nodes.iter().position(|n| &n.id == id));
-            let engine = engine::Engine::start(config, data_dir.join("history.sqlite"));
-            Ok(Box::new(ui::App::new(
-                engine,
-                selected,
-                selected_tab,
-                screenshot,
-                exit_after,
-            )))
-        }),
+    let selected = selected_node
+        .as_ref()
+        .and_then(|id| config.nodes.iter().position(|n| &n.id == id))
+        .unwrap_or(0);
+    ui::run(
+        config,
+        data_dir,
+        selected,
+        selected_tab,
+        screenshot,
+        exit_after,
     )
-    .map_err(|e| anyhow::anyhow!(e.to_string()))
 }
 
 fn default_data_dir() -> PathBuf {
