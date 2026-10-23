@@ -1,6 +1,6 @@
 //! A small native mesh renderer. Geometry is uploaded once; only the camera and
 //! selection uniforms change. No game loop, asset service, or web runtime.
-use crate::{config::VisualKind, ui::Message, view_model::DeviceSceneModel};
+use crate::{config::VisualKind, palette, ui::Message, view_model::DeviceSceneModel};
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
 use iced::wgpu;
@@ -162,7 +162,8 @@ struct Uniform {
     camera: [[f32; 4]; 4],
     light: [[f32; 4]; 4],
     eye: [f32; 4],
-    state: [f32; 4],
+    ground: [f32; 4],
+    selection: [f32; 4],
     nodes: [[f32; 4]; 32],
 }
 #[derive(Debug)]
@@ -557,10 +558,14 @@ impl shader::Primitive for ScenePrimitive {
         let mut nodes = [[0.0; 4]; 32];
         for (i, d) in self.0.devices.iter().take(32).enumerate() {
             let color = d.status.color();
+            let color = palette::resolve(
+                iced::Color::from_rgb(color[0], color[1], color[2]),
+                self.0.dark,
+            );
             nodes[i] = [
-                color[0],
-                color[1],
-                color[2],
+                color.r,
+                color.g,
+                color.b,
                 f32::from(self.0.selected.as_deref() == Some(&d.id)),
             ];
         }
@@ -569,7 +574,8 @@ impl shader::Primitive for ScenePrimitive {
             camera: camera(c, bounds.width / bounds.height, &self.0.devices).to_cols_array_2d(),
             light: light.to_cols_array_2d(),
             eye: [c.yaw.sin() * 11.0, 8.3, c.yaw.cos() * 11.0, 1.0],
-            state: [f32::from(self.0.dark), 0.0, 0.0, 0.0],
+            ground: palette::rgba(palette::resolve(palette::GROUND, self.0.dark)),
+            selection: palette::rgba(palette::resolve(palette::ACCENT, self.0.dark)),
             nodes,
         };
         if p.last_uniform != Some(u) {
@@ -607,6 +613,7 @@ impl shader::Primitive for ScenePrimitive {
             pass.draw(6..p.count, 0..1);
         }
         if p.dirty.swap(false, Ordering::Relaxed) {
+            let ground = palette::resolve(palette::GROUND, self.0.dark);
             p.scene_passes.fetch_add(1, Ordering::Relaxed);
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("scene"),
@@ -616,9 +623,9 @@ impl shader::Primitive for ScenePrimitive {
                     resolve_target: Some(&t.color),
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.89,
-                            g: 0.90,
-                            b: 0.87,
+                            r: f64::from(ground.r).powf(2.2),
+                            g: f64::from(ground.g).powf(2.2),
+                            b: f64::from(ground.b).powf(2.2),
                             a: 1.0,
                         }),
                         store: wgpu::StoreOp::Discard,
@@ -847,10 +854,10 @@ fn geometry(devices: &[DeviceSceneModel]) -> Vec<Vertex> {
             2.0,
         );
         m.origin.y = 0.055;
-        let silver = [0.64, 0.69, 0.70];
-        let black = [0.09, 0.12, 0.13];
-        let glass = [0.035, 0.065, 0.07];
-        let green = [0.53, 0.84, 0.64];
+        let silver = [0.66, 0.69, 0.76];
+        let black = [0.10, 0.12, 0.17];
+        let glass = [0.04, 0.05, 0.09];
+        let indicator = [0.66, 0.67, 0.96];
         match device.kind {
             VisualKind::Laptop => {
                 // MacBook, open lid, keyboard and trackpad.
@@ -979,7 +986,7 @@ fn geometry(devices: &[DeviceSceneModel]) -> Vec<Vertex> {
                     Vec3::new(0.0, 1.74, 0.52),
                     Vec3::new(0.11, 0.018, 0.006),
                     0.0,
-                    green,
+                    indicator,
                     0.2,
                     1.0,
                 );
@@ -1017,7 +1024,7 @@ fn geometry(devices: &[DeviceSceneModel]) -> Vec<Vertex> {
                     Vec3::new(0.34, 0.13, 0.56),
                     Vec3::new(0.045, 0.012, 0.006),
                     0.0,
-                    green,
+                    indicator,
                     0.2,
                     1.0,
                 );
@@ -1037,7 +1044,7 @@ fn geometry(devices: &[DeviceSceneModel]) -> Vec<Vertex> {
                     Vec3::new(0.0, 0.105, 0.0),
                     Vec3::new(1.18, 0.08, 0.79),
                     0.025,
-                    [0.10, 0.24, 0.20],
+                    [0.14, 0.18, 0.28],
                     0.7,
                     0.0,
                 );
@@ -1101,7 +1108,7 @@ fn geometry(devices: &[DeviceSceneModel]) -> Vec<Vertex> {
                     Vec3::new(0.0, 0.200, 0.04),
                     Vec3::new(0.48, 0.005, 0.80),
                     0.035,
-                    [0.18, 0.29, 0.30],
+                    [0.17, 0.24, 0.38],
                     0.5,
                     0.0,
                 );
@@ -1195,31 +1202,23 @@ impl iced::widget::canvas::Program<Message> for Scene {
                 iced::Size::new(width, 18.0),
                 4.0.into(),
             );
-            frame.fill(
-                &plate,
-                if self.dark {
-                    iced::Color::from_rgb(0.078, 0.125, 0.102)
-                } else {
-                    iced::Color::WHITE
-                },
-            );
+            frame.fill(&plate, palette::resolve(palette::PAPER, self.dark));
             let c = d.status.color();
             frame.stroke(
                 &plate,
                 canvas::Stroke::default()
                     .with_width(0.8)
-                    .with_color(iced::Color::from_rgb(c[0], c[1], c[2])),
+                    .with_color(palette::resolve(
+                        iced::Color::from_rgb(c[0], c[1], c[2]),
+                        self.dark,
+                    )),
             );
             frame.fill_text(canvas::Text {
                 content: label,
                 position: iced::Point::new(x, y),
                 font: iced::Font::with_name("Inter"),
                 align_y: iced::alignment::Vertical::Center,
-                color: if self.dark {
-                    iced::Color::from_rgb(0.918, 0.949, 0.925)
-                } else {
-                    iced::Color::from_rgb(0.10, 0.15, 0.14)
-                },
+                color: palette::resolve(palette::INK, self.dark),
                 size: 11.0.into(),
                 align_x: iced::alignment::Horizontal::Center.into(),
                 ..Default::default()

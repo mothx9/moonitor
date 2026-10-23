@@ -45,13 +45,15 @@ impl NodeStatus {
         }
     }
     pub fn color(self) -> [f32; 3] {
-        match self {
-            Self::Online => [0.23, 0.49, 0.36],
-            Self::Stale => [0.70, 0.45, 0.15],
-            Self::Unreachable => [0.72, 0.25, 0.23],
-            Self::Uninstrumented => [0.48, 0.51, 0.50],
-            Self::Connecting => [0.35, 0.46, 0.65],
-        }
+        use crate::palette;
+        let color = match self {
+            Self::Online => palette::HEALTHY,
+            Self::Stale => palette::AMBER,
+            Self::Unreachable => palette::DANGER,
+            Self::Uninstrumented => palette::UNKNOWN,
+            Self::Connecting => palette::CONNECTING,
+        };
+        [color.r, color.g, color.b]
     }
 }
 #[derive(Debug, Clone, PartialEq)]

@@ -213,7 +213,7 @@ fn metric_rendering() {
         let mut ui = Simulator::with_size(
             settings(),
             (286.0, 100.0),
-            container(metric(m, GREEN)).padding(22).style(panel),
+            container(metric(m, ACCENT)).padding(22).style(panel),
         );
         let label = format!("{value:.0}%");
         let value_bounds = ui.find(label.as_str()).unwrap();
@@ -250,9 +250,12 @@ fn changing_metrics_keep_visible_glyphs() {
         .enumerate()
     {
         let reading = Reading::reported(value, "fixture", 100 + i as u64);
-        let element = container(metric(Metric::percent("CPU", Some(&reading), false), GREEN))
-            .padding(22)
-            .style(panel);
+        let element = container(metric(
+            Metric::percent("CPU", Some(&reading), false),
+            ACCENT,
+        ))
+        .padding(22)
+        .style(panel);
         let mut ui =
             UserInterface::build(element, iced::Size::new(286.0, 100.0), cache, &mut renderer);
         ui.draw(
@@ -371,4 +374,54 @@ fn list_alternative_selection_and_theme() {
         assert_eq!(app.selected.as_deref(), Some("qa-4"));
         assert_eq!(app.section, Section::Device);
     }
+}
+
+#[test]
+#[ignore = "Requires a graphical backend. Run scripts/qa-ui.sh."]
+fn theme_switch_preserves_device_camera_and_resource_context() {
+    let dir = std::path::PathBuf::from(std::env::var("MOONITOR_QA_DIR").unwrap());
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut app = app(5, Tab::History);
+    app.section = Section::Settings;
+    app.selected = Some("qa-2".into());
+    app.camera.yaw = 0.67;
+    app.camera.zoom = 1.25;
+    let camera = app.camera;
+    for (index, (label, dark)) in [
+        ("Deep Space", true),
+        ("Moonlight", false),
+        ("Deep Space", true),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut ui = Simulator::with_size(settings(), (1280.0, 800.0), app.view());
+        ui.click(label).unwrap();
+        for message in ui.into_messages() {
+            let _ = app.update(message);
+        }
+        assert_eq!(app.dark, dark);
+        assert_eq!(app.selected.as_deref(), Some("qa-2"));
+        assert_eq!(app.tab, Tab::History);
+        assert_eq!(app.camera, camera);
+        assert!(app.scene_visible);
+        let mut ui = Simulator::with_size(settings(), (1280.0, 800.0), app.view());
+        let selected = ui.find("Attivo").unwrap().visible_bounds().unwrap();
+        let name = ui.find(label).unwrap().visible_bounds().unwrap();
+        assert!((selected.y - name.y).abs() < 8.0);
+        assert!(
+            ui.snapshot(&app_theme(dark))
+                .unwrap()
+                .matches_image(dir.join(format!("fixture-theme-switch-{index}")))
+                .unwrap()
+        );
+    }
+    let _ = app.update(Message::Navigate(Section::Overview));
+    let mut ui = Simulator::with_size(settings(), (1280.0, 800.0), app.view());
+    assert!(
+        ui.snapshot(&app_theme(true))
+            .unwrap()
+            .matches_image(dir.join("fixture-theme-switch-scene"))
+            .unwrap()
+    );
 }

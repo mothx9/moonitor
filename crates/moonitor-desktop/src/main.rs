@@ -2,6 +2,7 @@ mod config;
 mod engine;
 #[cfg(test)]
 mod fixtures;
+mod palette;
 mod scene;
 mod ui;
 mod view_model;

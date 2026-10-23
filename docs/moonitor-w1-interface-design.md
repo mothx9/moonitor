@@ -50,8 +50,11 @@ Nessuna lista dispositivi duplicata nella navigazione primaria.
 
 ## Design system
 
-- Canvas caldo `#F6F8F5`, superficie bianca, testo `#17251F`; palette scura equivalente.
-- Verde salvia come selezione/enfasi; stato accompagnato sempre da testo.
+- Direzione aggiornata su richiesta dell'utente il 23 ottobre: **Moonlight** e
+  **Deep Space** sostituiscono il verde salvia della proposta iniziale del blueprint.
+- Moonlight: canvas `#F2F3F8`, bianco e grigi lunari; Deep Space: canvas `#0B0E18`,
+  superfici `#141927`, argento e pervinca. Token condivisi in `palette.rs`.
+- Selezione pervinca, stati con testo e colore semantico; avvisi ambra, errori corallo.
 - Inter locale, numeri allineati; heading 24–28, card 13–14, metadati ≥11.
 - Sidebar 220, topbar compatta, spaziatura 8/16/24, bordi sottili, raggi 10–14.
 - Densità guidata dai dati, non da grandi vuoti. Overview verificata a 1280×800.
@@ -68,3 +71,6 @@ Nessuna lista dispositivi duplicata nella navigazione primaria.
    sono candidate, non approvate automaticamente.
 5. Rendering senza regressione di loop continuo; nuova build e bundle identificabili.
 6. Review umana dell'interfaccia separata dai test automatici. W2–W4 non dichiarate implementate.
+
+La [qualificazione dei temi lunari](moonitor-lunar-themes.md) documenta il cambio
+di palette, la verifica del contrasto e le nuove catture.

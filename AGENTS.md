@@ -16,6 +16,8 @@ pushing; never force-push or discard unrelated work. Keep commits reviewable.
 - Read `docs/moonitor-professional-upgrade-blueprint.md` and the relevant audit or
   qualification report for substantial work. Verify claims against the code.
 - Keep Iced + wgpu unless a measured limitation justifies an architectural change.
+- The owner replaced the sage/green direction with lunar and stellar themes:
+  Moonlight and Deep Space. Use `palette.rs` for shared UI, chart and scene colors.
 - Missing, unsupported, stale and zero are different states. Preserve metric
   provenance, energy scope and the distinction between loaded models and requests.
 - Never put synthetic telemetry into production views. Fixtures belong in tests.

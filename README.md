@@ -9,9 +9,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/mothx9/moonitor/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/CI-macOS%20%C2%B7%20Linux-657b73?style=flat-square&amp;logo=githubactions&amp;logoColor=white" height="20" alt="CI on macOS and Linux" /></a>
-  <a href="rust-toolchain.toml"><img src="https://img.shields.io/badge/Rust-1.96-9bb98a?style=flat-square&amp;logo=rust&amp;logoColor=white" height="20" alt="Rust 1.96" /></a>
-  <a href="#architecture"><img src="https://img.shields.io/badge/native%20UI-Iced%20%2B%20wgpu-657b73?style=flat-square" height="20" alt="Native UI: Iced and wgpu" /></a>
+  <a href="https://github.com/mothx9/moonitor/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/CI-macOS%20%C2%B7%20Linux-596780?style=flat-square&amp;logo=githubactions&amp;logoColor=white" height="20" alt="CI on macOS and Linux" /></a>
+  <a href="rust-toolchain.toml"><img src="https://img.shields.io/badge/Rust-1.96-8484b5?style=flat-square&amp;logo=rust&amp;logoColor=white" height="20" alt="Rust 1.96" /></a>
+  <a href="#architecture"><img src="https://img.shields.io/badge/native%20UI-Iced%20%2B%20wgpu-7570b4?style=flat-square" height="20" alt="Native UI: Iced and wgpu" /></a>
   <a href="Cargo.toml"><img src="https://img.shields.io/badge/version-0.1.0-526b88?style=flat-square" height="20" alt="Version 0.1.0" /></a>
   <a href="#roadmap"><img src="https://img.shields.io/badge/status-in%20development-b39460?style=flat-square" height="20" alt="In development" /></a>
 </p>
@@ -60,7 +60,10 @@ the [roadmap](#roadmap) separates shipped foundations from planned capabilities.
 | **Explore** | Five-minute CPU/RAM/GPU charts with time, scale, sample inspection and explicit gaps. |
 | **Events & Settings** | Current source diagnostics, connection/configuration information and collection status. |
 
-Light and dark themes share the same data model. The 3D Lab Map supports picking,
+**Moonlight** and **Deep Space** bring lunar whites, midnight blues and periwinkle
+accents to the workbench. Switch between them in **Settings → Aspetto**;
+the selected theme applies to charts, controls and the 3D scene for the session.
+Both themes share the same data model. The 3D Lab Map supports picking,
 camera controls and an alternative list view; it renders on state changes and
 interaction instead of running a decorative animation loop.
 

@@ -21,15 +21,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-const BG: Color = Color::from_rgb(0.965, 0.970, 0.955);
-const PAPER: Color = Color::WHITE;
-const INK: Color = Color::from_rgb(0.10, 0.15, 0.14);
-const MUTED: Color = Color::from_rgb(0.45, 0.50, 0.47);
-const LINE: Color = Color::from_rgb(0.87, 0.89, 0.86);
-const GREEN: Color = Color::from_rgb(0.23, 0.49, 0.36);
-const LIME: Color = Color::from_rgb(0.71, 0.87, 0.60);
-const AMBER: Color = Color::from_rgb(0.65, 0.40, 0.18);
-const NAV: Color = Color::from_rgb(0.085, 0.12, 0.11);
+use crate::palette::*;
+
 const FONT: Font = Font::with_name("Inter");
 const MEDIUM: Font = Font {
     weight: iced::font::Weight::Medium,
@@ -74,44 +67,7 @@ fn brand_icon() -> widget::Image {
     widget::image(handle.clone()).width(34).height(34)
 }
 fn tone(color: Color, theme: &Theme) -> Color {
-    if !theme.extended_palette().is_dark {
-        return color;
-    }
-    if color == AMBER {
-        return Color::from_rgb(0.94, 0.72, 0.40);
-    }
-    if color == Color::from_rgb(0.98, 0.94, 0.86) {
-        return Color::from_rgb(0.20, 0.14, 0.09);
-    }
-    if color == Color::from_rgb(0.72, 0.25, 0.23) {
-        return Color::from_rgb(0.94, 0.57, 0.53);
-    }
-    if color == Color::from_rgb(0.70, 0.45, 0.15) {
-        return Color::from_rgb(0.94, 0.72, 0.40);
-    }
-    if color == Color::from_rgb(0.35, 0.46, 0.65) {
-        return Color::from_rgb(0.62, 0.74, 0.94);
-    }
-    if color == Color::from_rgb(0.48, 0.51, 0.50) {
-        return Color::from_rgb(0.66, 0.72, 0.68);
-    }
-    if color == BG {
-        Color::from_rgb(0.051, 0.086, 0.075)
-    } else if color == PAPER {
-        Color::from_rgb(0.078, 0.125, 0.102)
-    } else if color == INK {
-        Color::from_rgb(0.918, 0.949, 0.925)
-    } else if color == MUTED {
-        Color::from_rgb(0.64, 0.72, 0.67)
-    } else if color == LINE {
-        Color::from_rgb(0.20, 0.29, 0.24)
-    } else if color == GREEN {
-        Color::from_rgb(0.48, 0.75, 0.58)
-    } else if color.r > 0.8 && color.g > 0.8 && color.b > 0.7 && color != Color::WHITE {
-        Color::from_rgb(0.12, 0.21, 0.16)
-    } else {
-        color
-    }
+    resolve(color, theme.extended_palette().is_dark)
 }
 trait TextTone {
     fn tone(self, color: Color) -> Self;
@@ -146,31 +102,21 @@ fn themed_button(theme: &Theme, mut style: button::Style) -> button::Style {
     style
 }
 fn app_theme(dark: bool) -> Theme {
-    if dark {
-        Theme::custom(
-            "moonitor dark",
-            iced::theme::Palette {
-                background: Color::from_rgb(0.051, 0.086, 0.075),
-                text: Color::from_rgb(0.918, 0.949, 0.925),
-                primary: GREEN,
-                success: GREEN,
-                warning: AMBER,
-                danger: AMBER,
-            },
-        )
-    } else {
-        Theme::custom(
-            "moonitor",
-            iced::theme::Palette {
-                background: BG,
-                text: INK,
-                primary: GREEN,
-                success: GREEN,
-                warning: AMBER,
-                danger: AMBER,
-            },
-        )
-    }
+    Theme::custom(
+        if dark {
+            "Moonitor · Deep Space"
+        } else {
+            "Moonitor · Moonlight"
+        },
+        iced::theme::Palette {
+            background: resolve(BG, dark),
+            text: resolve(INK, dark),
+            primary: resolve(ACCENT, dark),
+            success: resolve(HEALTHY, dark),
+            warning: resolve(AMBER, dark),
+            danger: resolve(DANGER, dark),
+        },
+    )
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Tab {
@@ -571,21 +517,9 @@ impl App {
                     ]
                     .align_y(alignment::Vertical::Center),
                     row![
-                        plot("CPU", &n.history, self.view_time_ms, 0, GREEN),
-                        plot(
-                            "Memoria",
-                            &n.history,
-                            self.view_time_ms,
-                            1,
-                            Color::from_rgb(0.49, 0.58, 0.41)
-                        ),
-                        plot(
-                            "GPU",
-                            &n.history,
-                            self.view_time_ms,
-                            2,
-                            Color::from_rgb(0.51, 0.58, 0.64)
-                        )
+                        plot("CPU", &n.history, self.view_time_ms, 0, CPU),
+                        plot("Memoria", &n.history, self.view_time_ms, 1, MEMORY),
+                        plot("GPU", &n.history, self.view_time_ms, 2, GPU)
                     ]
                     .spacing(24)
                 ]
@@ -599,7 +533,7 @@ impl App {
                 };
                 content = content.push(widget::rule::horizontal(1)).push(
                     row![
-                        canvas(Icon("ai", GREEN)).width(20).height(20),
+                        canvas(Icon("ai", ACCENT)).width(20).height(20),
                         column![
                             text("AI locale").size(12).font(STRONG),
                             text(runtime).size(11).tone(MUTED)
@@ -627,7 +561,7 @@ impl App {
                     );
                     c = c.push(metric(
                         Metric::percent(&format!("Core {i}"), Some(&reading), !n.live()),
-                        GREEN,
+                        ACCENT,
                     ));
                 }
                 for gpu in &s.gpus {
@@ -640,7 +574,7 @@ impl App {
                                     Some(&gpu.utilization_percent),
                                     !n.live()
                                 ),
-                                GREEN
+                                ACCENT
                             )
                         ]
                         .spacing(12),
@@ -682,7 +616,7 @@ impl App {
                 }
                 c.push(metric(
                     Metric::percent("Batteria", Some(&s.battery_percent), !n.live()),
-                    GREEN,
+                    ACCENT,
                 ))
                 .into()
             }
@@ -700,7 +634,7 @@ impl App {
                         row![
                             metric(
                                 Metric::percent("CARICO", Some(&g.utilization_percent), !n.live()),
-                                GREEN
+                                ACCENT
                             ),
                             mini_stat(
                                 "MEMORIA GPU",
@@ -765,7 +699,7 @@ impl App {
                         c = c.push(
                             text("Runtime disponibile. Nessun modello caricato.")
                                 .size(13)
-                                .tone(GREEN),
+                                .tone(ACCENT),
                         )
                     }
                     Some(models) => {
@@ -813,7 +747,7 @@ impl App {
                             text(&d.name).size(11).tone(MUTED),
                             metric(
                                 Metric {label:"Spazio utilizzato".into(), value:used, detail:format!("{} disponibili / {} totali", bytes(Some(d.available_bytes)),bytes(Some(d.total_bytes))), provenance:format!("sysinfo filesystem · (totale − disponibile) / totale · {} ms Unix",d.sampled_at_unix_ms), stale:!n.live()},
-                                GREEN
+                                ACCENT
                             )
                         ]
                         .spacing(12),
@@ -845,21 +779,9 @@ impl App {
                 let plots = card(
                     column![
                         text("Utilizzo · ultimi 5 minuti").size(18).font(STRONG),
-                        plot("CPU", &n.history, self.view_time_ms, 0, GREEN),
-                        plot(
-                            "Memoria",
-                            &n.history,
-                            self.view_time_ms,
-                            1,
-                            Color::from_rgb(0.49, 0.58, 0.41)
-                        ),
-                        plot(
-                            "GPU",
-                            &n.history,
-                            self.view_time_ms,
-                            2,
-                            Color::from_rgb(0.51, 0.58, 0.64)
-                        ),
+                        plot("CPU", &n.history, self.view_time_ms, 0, CPU),
+                        plot("Memoria", &n.history, self.view_time_ms, 1, MEMORY),
+                        plot("GPU", &n.history, self.view_time_ms, 2, GPU),
                         text("SQLite locale · riepilogo ogni 5 s · conservazione 7 giorni")
                             .size(11)
                             .tone(MUTED)
@@ -1047,7 +969,7 @@ fn notice(s: &str) -> Element<'static, Message> {
             themed_panel(
                 theme,
                 container::Style {
-                    background: Some(Color::from_rgb(0.98, 0.94, 0.86).into()),
+                    background: Some(WARNING_BG.into()),
                     border: Border {
                         radius: 8.into(),
                         ..Default::default()
@@ -1076,7 +998,7 @@ fn metric<'a>(metric: Metric, c: Color) -> Element<'a, Message> {
         content = content.push(progress_bar(0.0..=100.0, value as f32).girth(4).style(
             move |theme| progress_bar::Style {
                 background: tone(LINE, theme).into(),
-                bar: c.into(),
+                bar: tone(c, theme).into(),
                 border: Border {
                     radius: 2.into(),
                     ..Default::default()
@@ -1234,7 +1156,7 @@ impl canvas::Program<Message> for Trend {
                     frame.stroke(
                         &canvas::Path::line(prev, p),
                         canvas::Stroke::default()
-                            .with_color(self.color)
+                            .with_color(tone(self.color, theme))
                             .with_width(1.8),
                     );
                 }

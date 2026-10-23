@@ -3,11 +3,7 @@ use super::*;
 use iced::{Point, Rectangle, mouse};
 const WINDOW: u64 = 300_000;
 const GAP: u64 = 7_500;
-pub(super) const SERIES: [Color; 3] = [
-    GREEN,
-    Color::from_rgb(0.62, 0.48, 0.31),
-    Color::from_rgb(0.35, 0.55, 0.71),
-];
+pub(super) const SERIES: [Color; 3] = [CPU, MEMORY, GPU];
 pub(super) struct ResourceChart {
     points: Vec<HistoryPoint>,
     end: u64,
@@ -112,6 +108,7 @@ impl canvas::Program<Message> for ResourceChart {
             });
         }
         for (field, color) in SERIES.into_iter().enumerate() {
+            let color = tone(color, theme);
             let point = |p: &HistoryPoint| {
                 Point::new(
                     left + width * p.received_at_ms.saturating_sub(start) as f32 / WINDOW as f32,

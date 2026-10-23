@@ -114,7 +114,7 @@ impl App {
             ]
             .spacing(5),
             Space::new().width(Fill),
-            pill("LIVE · 1 s", GREEN),
+            pill("LIVE · 1 s", HEALTHY),
             switcher
         ]
         .spacing(16)
@@ -181,20 +181,14 @@ impl App {
         .align_y(alignment::Vertical::Center);
         let mut nav = column![
             brand,
-            text("COMPUTE OBSERVATORY")
-                .size(9)
-                .color(Color::from_rgb(0.58, 0.68, 0.61)),
+            text("COMPUTE OBSERVATORY").size(9).color(NAV_MUTED),
             Space::new().height(26)
         ]
         .spacing(14);
         for section in SECTIONS {
             let selected = self.section == section
                 || (self.section == Section::Device && section == Section::Fleet);
-            let color = if selected {
-                LIME
-            } else {
-                Color::from_rgb(0.72, 0.79, 0.74)
-            };
+            let color = if selected { ACCENT_SOFT } else { NAV_TEXT };
             nav = nav.push(
                 button(
                     row![
@@ -210,9 +204,9 @@ impl App {
                 .style(move |_, state| button::Style {
                     background: Some(
                         if selected {
-                            Color::from_rgb(0.17, 0.25, 0.19)
+                            NAV_SELECTED
                         } else if matches!(state, button::Status::Hovered) {
-                            Color::from_rgb(0.12, 0.18, 0.14)
+                            NAV_HOVER
                         } else {
                             Color::TRANSPARENT
                         }
@@ -233,18 +227,14 @@ impl App {
             .filter(|n| !matches!(n.config.kind, crate::config::NodeKind::Unavailable))
             .count();
         let footer = column![
-            text("RACCOLTA LOCALE")
-                .size(9)
-                .color(Color::from_rgb(0.55, 0.65, 0.58)),
+            text("RACCOLTA LOCALE").size(9).color(NAV_MUTED),
             text(format!("{monitored} nodi strumentati"))
                 .size(12)
-                .color(Color::from_rgb(0.80, 0.86, 0.81)),
+                .color(NAV_TEXT),
             text("SSH · archivio sul dispositivo")
                 .size(10)
-                .color(Color::from_rgb(0.55, 0.65, 0.58)),
-            text("Moonitor / Native workbench")
-                .size(9)
-                .color(Color::from_rgb(0.45, 0.55, 0.48))
+                .color(NAV_MUTED),
+            text("Moonitor / Native workbench").size(9).color(NAV_MUTED)
         ]
         .spacing(9);
         container(column![nav, Space::new().height(Fill), footer].spacing(18))
@@ -516,7 +506,7 @@ impl App {
                         button::Style {
                             background: Some(
                                 if self.tab == *tab {
-                                    Color::from_rgb(0.90, 0.94, 0.86)
+                                    SELECTED
                                 } else if matches!(state, button::Status::Hovered) {
                                     LINE
                                 } else {
@@ -524,7 +514,7 @@ impl App {
                                 }
                                 .into(),
                             ),
-                            text_color: if self.tab == *tab { GREEN } else { MUTED },
+                            text_color: if self.tab == *tab { ACCENT } else { MUTED },
                             border: Border {
                                 radius: 7.0.into(),
                                 ..Default::default()
@@ -543,17 +533,17 @@ impl App {
                 row![
                     card(metric(
                         Metric::percent("CPU", s.map(|s| &s.cpu_utilization_percent), !n.live()),
-                        GREEN
+                        CPU
                     )),
                     card(metric(
                         s.map(|s| Metric::memory(s, !n.live()))
                             .unwrap_or_else(|| Metric::percent("RAM", None, false)),
-                        GREEN
+                        MEMORY
                     )),
                     card(metric(
                         s.map(|s| Metric::gpu(s, !n.live()))
                             .unwrap_or_else(|| Metric::percent("GPU", None, false)),
-                        GREEN
+                        GPU
                     ))
                 ]
                 .spacing(12),
@@ -703,7 +693,7 @@ impl App {
             events = events.push(
                 text("Nessun errore di raccolta segnalato.")
                     .size(13)
-                    .tone(GREEN),
+                    .tone(ACCENT),
             );
         }
         column![card(events),card(column![text("Timeline eventi non disponibile").size(16).font(STRONG),text("L'archivio corrente conserva riepiloghi delle metriche. Non contiene ancora eventi storici di connessione o esecuzione dei workload.").size(13).tone(MUTED),small_button("Controlla la flotta →",Message::Navigate(Section::Fleet))].spacing(12)),self.source_summary()].spacing(18).into()
@@ -717,20 +707,14 @@ impl App {
                 text("Ultimi 5 minuti · dati ricevuti · campioni persistiti ogni 5 s")
                     .size(12)
                     .tone(MUTED),
-                plot("CPU", &n.history, self.view_time_ms, 0, GREEN),
-                plot(
-                    "RAM",
-                    &n.history,
-                    self.view_time_ms,
-                    1,
-                    Color::from_rgb(0.48, 0.58, 0.40)
-                ),
+                plot("CPU", &n.history, self.view_time_ms, 0, CPU),
+                plot("RAM", &n.history, self.view_time_ms, 1, MEMORY),
                 plot(
                     "GPU · massimo disponibile",
                     &n.history,
                     self.view_time_ms,
                     2,
-                    Color::from_rgb(0.40, 0.56, 0.66)
+                    GPU
                 ),
                 text("0–100% · le interruzioni delle misure restano visibili come lacune.")
                     .size(11)
@@ -741,8 +725,78 @@ impl App {
         .into()
     }
     fn settings(&self) -> Element<'_, Message> {
-        column![card(column![text("Aspetto · sessione corrente").size(18).font(STRONG),row![small_button("Chiaro",Message::Theme(false)),small_button("Scuro",Message::Theme(true)),small_button(if self.scene_visible{"Disattiva 3D"}else{"Attiva 3D"},Message::ToggleScene)].spacing(12),text("Il rendering 3D si aggiorna su dati e interazioni. Nessuna animazione continua.").size(12).tone(MUTED)].spacing(16)),card(column![text("Collegamento delle sorgenti").size(18).font(STRONG),text("I nodi e gli alias SSH sono configurati in fleet.toml. Le credenziali restano nella configurazione SSH del sistema. Le modifiche alla flotta richiedono il riavvio dell'app.").size(13).tone(MUTED),text("Archivio locale SQLite · riepiloghi ogni 5 s · conservazione 7 giorni. La raccolta si ferma chiudendo il desktop.").size(13).tone(MUTED),text("Tastiera: Cmd/Ctrl+1…7 navigazione · Alt+←/→ nodo · Tab e Shift+Tab focus.").size(12).tone(MUTED)].spacing(14)),self.source_summary()].spacing(18).into()
+        let themes = row![
+            theme_choice("Moonlight", "Luce lunare · chiaro", false, self.dark),
+            theme_choice("Deep Space", "Cielo notturno · scuro", true, self.dark),
+        ]
+        .spacing(12);
+        column![
+            card(column![
+                text("Aspetto · sessione corrente").size(18).font(STRONG),
+                themes,
+                small_button(if self.scene_visible { "Disattiva 3D" } else { "Attiva 3D" }, Message::ToggleScene),
+                text("Il rendering 3D si aggiorna su dati e interazioni. Nessuna animazione continua.").size(12).tone(MUTED),
+            ].spacing(16)),
+            card(column![
+                text("Collegamento delle sorgenti").size(18).font(STRONG),
+                text("I nodi e gli alias SSH sono configurati in fleet.toml. Le credenziali restano nella configurazione SSH del sistema. Le modifiche alla flotta richiedono il riavvio dell'app.").size(13).tone(MUTED),
+                text("Archivio locale SQLite · riepiloghi ogni 5 s · conservazione 7 giorni. La raccolta si ferma chiudendo il desktop.").size(13).tone(MUTED),
+                text("Tastiera: Cmd/Ctrl+1…7 navigazione · Alt+←/→ nodo · Tab e Shift+Tab focus.").size(12).tone(MUTED),
+            ].spacing(14)),
+            self.source_summary(),
+        ].spacing(18).into()
     }
+}
+fn theme_choice(
+    name: &'static str,
+    description: &'static str,
+    dark: bool,
+    current: bool,
+) -> Element<'static, Message> {
+    let selected = dark == current;
+    button(
+        column![
+            row![
+                text(name).size(15).font(STRONG),
+                Space::new().width(Fill),
+                text(if selected { "Attivo" } else { "Seleziona" })
+                    .size(11)
+                    .tone(if selected { ACCENT } else { MUTED }),
+            ]
+            .spacing(12)
+            .align_y(alignment::Vertical::Center),
+            text(description).size(12).tone(MUTED),
+        ]
+        .spacing(8),
+    )
+    .padding(16)
+    .width(Fill)
+    .on_press(Message::Theme(dark))
+    .style(move |theme, status| {
+        themed_button(
+            theme,
+            button::Style {
+                background: Some(
+                    if selected {
+                        SELECTED
+                    } else if matches!(status, button::Status::Hovered) {
+                        HOVER
+                    } else {
+                        PAPER
+                    }
+                    .into(),
+                ),
+                text_color: INK,
+                border: Border {
+                    color: if selected { ACCENT } else { LINE },
+                    width: 1.0,
+                    radius: 9.0.into(),
+                },
+                ..Default::default()
+            },
+        )
+    })
+    .into()
 }
 fn stat<'a>(label: &str, value: &str, detail: &str) -> Element<'a, Message> {
     card(

@@ -5,6 +5,10 @@
 correzione esplicita dell'utente dopo la W0; non implica il superamento automatico
 dei gate esterni W0. Il layout precedente è stato rifiutato dall'utente.
 
+Aggiornamento successivo: [Moonlight e Deep Space](moonitor-lunar-themes.md)
+sostituiscono la palette verde su richiesta del proprietario. Le evidenze di questa
+pagina restano riferite alla prima build W1; la qualifica dei nuovi temi è separata.
+
 ## Cambiamento verificabile
 
 - Shell nuova con Overview, Fleet, Workloads, Energy, Events, Explore e Settings;
