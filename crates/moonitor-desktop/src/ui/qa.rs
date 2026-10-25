@@ -1,4 +1,5 @@
 use super::*;
+use crate::scene::Scene;
 use iced_test::Simulator;
 fn app(count: usize, tab: Tab) -> App {
     App {
@@ -8,7 +9,6 @@ fn app(count: usize, tab: Tab) -> App {
         dropped_events: 0,
         pending_samples: Vec::new(),
         selected: (count > 0).then(|| "qa-0".into()),
-        scene_visible: true,
         dark: false,
         tab,
         section: if tab == Tab::Overview {
@@ -24,6 +24,19 @@ fn app(count: usize, tab: Tab) -> App {
         screenshot: None,
         exit_after: None,
         window: None,
+        profile: None,
+        preferences: Default::default(),
+        data_dir: std::env::temp_dir(),
+        form: None,
+        setup_error: None,
+        setup_notice: None,
+        remove_host: None,
+        applying: false,
+        fleet_filter: String::new(),
+        fleet_sort: instrument::FleetSort::Name,
+        fleet_scroll: 0.0,
+        viewport: iced::Size::new(1280.0, 800.0),
+        paused: false,
     }
 }
 fn settings() -> iced::Settings {
@@ -71,6 +84,238 @@ fn switching_context_keeps_the_page_and_absent_data_is_not_stale() {
     assert!(!Metric::percent("CPU", None, true).stale);
     assert!(Metric::memory(&crate::fixtures::sample("qa-0"), true).stale);
 }
+
+#[test]
+fn form_crud_keeps_identity_preferences_and_history_file_on_restart() {
+    use setup::Field;
+    let root =
+        std::env::temp_dir().join(format!("moonitor-crud-{}-{}", std::process::id(), now_ms()));
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("history.sqlite"), b"preserved-history-marker").unwrap();
+    let mut app = super::qa::app(0, Tab::Overview);
+    app.profile = Some(crate::profile::Profile::open(&root.join("settings.sqlite"), None).unwrap());
+    app.nodes = app
+        .profile
+        .as_ref()
+        .unwrap()
+        .config
+        .nodes
+        .iter()
+        .map(|c| NodeState {
+            config: c.clone(),
+            capacity_limited: false,
+            sample: None,
+            last_seen: None,
+            error: None,
+            history: Default::default(),
+        })
+        .collect();
+    let _ = app.update(Message::NewHost);
+    let id = app.form.as_ref().unwrap().id.clone();
+    let _ = app.update(Message::HostField(Field::Label, "Compute example".into()));
+    let _ = app.update(Message::HostField(
+        Field::Destination,
+        "node.example".into(),
+    ));
+    let _ = app.update(Message::HostField(Field::User, "observer".into()));
+    let _ = app.update(Message::HostField(Field::Port, "2222".into()));
+    let _ = app.update(Message::SaveHost);
+    assert!(app.setup_error.is_none());
+    assert_eq!(app.nodes.len(), 2);
+    let _ = app.update(Message::EditHost(id.clone()));
+    let _ = app.update(Message::HostField(Field::Label, "Renamed compute".into()));
+    let _ = app.update(Message::SaveHost);
+    let _ = app.update(Message::Theme(true));
+    let _ = app.update(Message::Density);
+    drop(app);
+    let profile = crate::profile::Profile::open(&root.join("settings.sqlite"), None).unwrap();
+    assert_eq!(profile.config.nodes[1].id, id);
+    assert_eq!(profile.config.nodes[1].label, "Renamed compute");
+    assert_eq!(profile.config.nodes[1].ssh_port, Some(2222));
+    assert!(profile.preferences.dark && profile.preferences.comfortable);
+    let mut app = super::qa::app(0, Tab::Overview);
+    app.nodes = profile
+        .config
+        .nodes
+        .iter()
+        .map(|c| NodeState {
+            config: c.clone(),
+            capacity_limited: false,
+            sample: None,
+            last_seen: None,
+            error: None,
+            history: Default::default(),
+        })
+        .collect();
+    app.profile = Some(profile);
+    let _ = app.update(Message::RemoveHost(id.clone())); // Unconfirmed removals are ignored.
+    assert_eq!(app.nodes.len(), 2);
+    let _ = app.update(Message::RequestRemove(id.clone()));
+    let _ = app.update(Message::RemoveHost(id));
+    assert_eq!(app.nodes.len(), 1);
+    drop(app);
+    assert_eq!(
+        crate::profile::Profile::open(&root.join("settings.sqlite"), None)
+            .unwrap()
+            .config
+            .nodes
+            .len(),
+        1
+    );
+    assert_eq!(
+        std::fs::read(root.join("history.sqlite")).unwrap(),
+        b"preserved-history-marker"
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+#[ignore = "Requires a graphical backend. Run scripts/qa-ui.sh."]
+fn fleet_preview_sort_filter_open_and_empty_host() {
+    let mut app = app(5, Tab::Overview);
+    let mut ui = Simulator::with_size(settings(), (1280.0, 800.0), app.view());
+    ui.click("QA device 4").unwrap();
+    for m in ui.into_messages() {
+        let _ = app.update(m);
+    }
+    assert_eq!(app.selected.as_deref(), Some("qa-4"));
+    assert_eq!(app.section, Section::Overview);
+    let mut ui = Simulator::with_size(settings(), (1280.0, 800.0), app.view());
+    ui.click("Apri host →").unwrap();
+    for m in ui.into_messages() {
+        let _ = app.update(m);
+    }
+    assert_eq!(app.section, Section::Device);
+    let mut ui = Simulator::with_size(settings(), (1280.0, 800.0), app.view());
+    ui.click("Apri Setup").unwrap();
+    for m in ui.into_messages() {
+        let _ = app.update(m);
+    }
+    assert_eq!(app.section, Section::Settings);
+    let _ = app.update(Message::Navigate(Section::Overview));
+    let _ = app.update(Message::FleetFilter("online".into()));
+    assert_eq!(app.filtered_nodes().len(), 1);
+    let _ = app.update(Message::FleetFilter(String::new()));
+    let _ = app.update(Message::FleetSort(instrument::FleetSort::State));
+    assert_eq!(app.selected.as_deref(), Some("qa-4"));
+    let _ = app.update(Message::NextNode(-1));
+    assert_eq!(app.selected.as_deref(), Some("qa-3"));
+}
+
+#[test]
+#[ignore = "Requires a graphical backend. Run scripts/qa-ui.sh."]
+fn setup_form_keyboard_and_save() {
+    let mut app = app(0, Tab::Overview);
+    let _ = app.update(Message::NewHost);
+    app.form.as_mut().unwrap().id = "qa-editor".into();
+    let id = app.form.as_ref().unwrap().id.clone();
+    let mut ui = Simulator::with_size(settings(), (1280.0, 800.0), app.view());
+    ui.click(widget::Id::new("host-Label")).unwrap();
+    ui.typewrite("Remote fixture");
+    ui.click(widget::Id::new("host-Destination")).unwrap();
+    ui.typewrite("node.example");
+    for message in ui.into_messages() {
+        let _ = app.update(message);
+    }
+    assert_eq!(app.form.as_ref().unwrap().label, "Remote fixture");
+    let mut ui = Simulator::with_size(settings(), (1280.0, 800.0), app.view());
+    let dir = std::path::PathBuf::from(std::env::var("MOONITOR_QA_DIR").unwrap());
+    assert!(
+        ui.snapshot(&theme())
+            .unwrap()
+            .matches_image(dir.join("fixture-setup-editor"))
+            .unwrap()
+    );
+    ui.click("Salva host").unwrap();
+    for message in ui.into_messages() {
+        let _ = app.update(message);
+    }
+    assert!(app.setup_error.is_none(), "{:?}", app.setup_error);
+    assert_eq!(app.nodes.len(), 1);
+    assert_eq!(app.nodes[0].config.id, id);
+    assert_eq!(
+        app.nodes[0].config.ssh_alias.as_deref(),
+        Some("node.example")
+    );
+}
+
+#[test]
+#[ignore = "Requires a graphical backend. Run scripts/qa-ui.sh."]
+fn virtualized_scroll_and_filter_keep_the_real_widget_state_in_sync() {
+    use iced_test::futures::futures::{StreamExt, executor::block_on};
+    use iced_test::{
+        Selector,
+        core::{
+            renderer::Headless,
+            widget::{Operation, operation},
+        },
+        runtime::{Action, UserInterface, user_interface},
+    };
+    for font in settings().fonts {
+        iced_test::renderer::graphics::text::font_system()
+            .write()
+            .unwrap()
+            .load_font(font);
+    }
+    let mut renderer =
+        block_on(<iced::Renderer as Headless>::new(FONT, 16.0.into(), None)).unwrap();
+    let mut app = app(500, Tab::Overview);
+    let size = iced::Size::new(1280.0, 800.0);
+    let mut ui = UserInterface::build(
+        app.view(),
+        size,
+        user_interface::Cache::default(),
+        &mut renderer,
+    );
+    let mut messages = Vec::new();
+    let cursor = iced::mouse::Cursor::Available(iced::Point::new(700.0, 450.0));
+    let _ = ui.update(
+        &[iced::Event::Mouse(iced::mouse::Event::WheelScrolled {
+            delta: iced::mouse::ScrollDelta::Lines {
+                x: 0.0,
+                y: -10000.0,
+            },
+        })],
+        cursor,
+        &mut renderer,
+        &mut iced_test::core::clipboard::Null,
+        &mut messages,
+    );
+    let cache = ui.into_cache();
+    for message in messages {
+        let _ = app.update(message);
+    }
+    assert!(app.fleet_scroll > 20000.0);
+    let last = app.filtered_nodes().last().unwrap().config.label.clone();
+    let mut ui = UserInterface::build(app.view(), size, cache, &mut renderer);
+    let mut find = Selector::find(last.as_str());
+    ui.operate(&renderer, &mut operation::black_box(&mut find));
+    let operation::Outcome::Some(Some(target)) = find.finish() else {
+        panic!("Last host was not built")
+    };
+    assert!(
+        target.visible_bounds().is_some(),
+        "Last row outside the scroll viewport"
+    );
+    let cache = ui.into_cache();
+    let task = app.update(Message::FleetFilter("QA device 0".into()));
+    let mut ui = UserInterface::build(app.view(), size, cache, &mut renderer);
+    let mut stream = iced_test::runtime::task::into_stream(task).unwrap();
+    while let Some(action) = block_on(stream.next()) {
+        if let Action::Widget(mut operation) = action {
+            ui.operate(&renderer, operation.as_mut());
+        }
+    }
+    let mut find = Selector::find("Online");
+    ui.operate(&renderer, &mut operation::black_box(&mut find));
+    let operation::Outcome::Some(Some(target)) = find.finish() else {
+        panic!("Filtered host missing")
+    };
+    assert!(
+        target.visible_bounds().is_some(),
+        "Filter retained an obsolete scroll offset"
+    );
+}
 #[test]
 #[ignore = "Requires a graphical backend. Run scripts/qa-ui.sh."]
 fn visual_matrix_and_interactions() {
@@ -83,6 +328,8 @@ fn visual_matrix_and_interactions() {
     for (width, height) in [(1280, 800), (1440, 900), (3840, 2160)] {
         for (name, section, tab) in [
             ("overview", Section::Overview, Tab::Overview),
+            ("host", Section::Device, Tab::Overview),
+            ("metrics", Section::Metrics, Tab::Overview),
             ("fleet", Section::Fleet, Tab::Overview),
             ("workloads", Section::Workloads, Tab::Overview),
             ("energy", Section::Energy, Tab::Overview),
@@ -105,17 +352,24 @@ fn visual_matrix_and_interactions() {
                 let mut app = app(5, tab);
                 app.dark = dark;
                 app.section = section;
+                app.viewport = iced::Size::new(width as f32, height as f32);
                 let mut ui =
                     Simulator::with_size(settings(), (width as f32, height as f32), app.view());
                 let target = ui.find(section.label()).unwrap();
                 assert!(target.visible_bounds().is_some());
                 if section == Section::Overview {
                     for label in [
-                        "Resource timeline",
-                        "Lab Map",
-                        "Modelli osservati",
-                        "0%",
-                        "37%",
+                        "QA device 0",
+                        "QA device 1",
+                        "QA device 2",
+                        "QA device 3",
+                        "QA device 4",
+                        "CPU",
+                        "MEMORY",
+                        "GPU · MAX",
+                        "NETWORK",
+                        "STATE",
+                        "AGE",
                     ] {
                         assert!(
                             ui.find(label).unwrap().visible_bounds().is_some(),
@@ -123,13 +377,21 @@ fn visual_matrix_and_interactions() {
                         );
                     }
                 }
-                if section == Section::Fleet {
-                    let header_x = ui.find("STATO").unwrap().visible_bounds().unwrap().x;
-                    let value_x = ui.find("Online").unwrap().visible_bounds().unwrap().x;
-                    assert!(
-                        (header_x - value_x).abs() <= 12.0,
-                        "Fleet columns misaligned: {header_x} vs {value_x}"
-                    );
+                if section == Section::Device && tab == Tab::Overview {
+                    for label in [
+                        "CPU / PROCESSOR",
+                        "GPU / ACCELERATORS",
+                        "MEMORY / SWAP",
+                        "NETWORK / INTERFACES",
+                        "STORAGE / FILESYSTEMS",
+                        "PROCESS EXPLORER / campione limitato · 100% = un core",
+                        "DIAGNOSTICS / SOURCE & FRESHNESS",
+                    ] {
+                        assert!(
+                            ui.find(label).unwrap().visible_bounds().is_some(),
+                            "{label} below fold in {case_name}"
+                        );
+                    }
                 }
                 let snapshot = ui.snapshot(&app_theme(dark)).unwrap();
                 let path = dir.join(format!(
@@ -157,50 +419,15 @@ fn visual_matrix_and_interactions() {
         assert_eq!(covered, 1, "Unknown QA case {case}");
         return;
     }
-    for count in [0, 1, 2, 16, 32] {
+    for count in [0, 1, 2, 5, 16, 32, 500] {
         let app = app(count, Tab::Overview);
-        let mut ui = Simulator::with_size(settings(), (1440.0, 900.0), app.view());
+        let mut ui = Simulator::with_size(settings(), (1280.0, 800.0), app.view());
         assert!(
             ui.snapshot(&theme())
                 .unwrap()
-                .matches_image(dir.join(format!("fixture-fleet-{count}")))
+                .matches_image(dir.join(format!("fixture-population-{count}")))
                 .unwrap()
         );
-    }
-    let mut app = app(5, Tab::Overview);
-    let mut ui = Simulator::with_size(settings(), (1440.0, 900.0), app.view());
-    ui.click("Fleet").unwrap();
-    for message in ui.into_messages() {
-        let _ = app.update(message);
-    }
-    assert_eq!(app.section, Section::Fleet);
-    let mut ui = Simulator::with_size(settings(), (1440.0, 900.0), app.view());
-    ui.click("QA device 4").unwrap();
-    for message in ui.into_messages() {
-        let _ = app.update(message);
-    }
-    assert_eq!(app.selected.as_deref(), Some("qa-4"));
-    assert_eq!(app.section, Section::Device);
-    let mut ui = Simulator::with_size(settings(), (1440.0, 900.0), app.view());
-    ui.click("AI locale").unwrap();
-    for message in ui.into_messages() {
-        let _ = app.update(message);
-    }
-    assert_eq!(app.tab, Tab::Ai);
-    let mut ui = Simulator::with_size(settings(), (1440.0, 900.0), app.view());
-    assert!(ui.find("Non strumentato").is_ok());
-    ui.click("Vai alla flotta").unwrap();
-    for message in ui.into_messages() {
-        let _ = app.update(message);
-    }
-    assert_eq!(app.section, Section::Fleet);
-    for section in SECTIONS {
-        let mut ui = Simulator::with_size(settings(), (1440.0, 900.0), app.view());
-        ui.click(section.label()).unwrap();
-        for message in ui.into_messages() {
-            let _ = app.update(message);
-        }
-        assert_eq!(app.section, section);
     }
 }
 #[test]
@@ -348,7 +575,6 @@ fn list_alternative_selection_and_theme() {
     for dark in [false, true] {
         let mut app = app(5, Tab::Overview);
         app.dark = dark;
-        app.scene_visible = false;
         let mut ui = Simulator::with_size(settings(), (1280.0, 800.0), app.view());
         let path = dir.join(if dark {
             "fixture-list-dark"
@@ -372,7 +598,7 @@ fn list_alternative_selection_and_theme() {
             let _ = app.update(message);
         }
         assert_eq!(app.selected.as_deref(), Some("qa-4"));
-        assert_eq!(app.section, Section::Device);
+        assert_eq!(app.section, Section::Overview);
     }
 }
 
@@ -404,11 +630,7 @@ fn theme_switch_preserves_device_camera_and_resource_context() {
         assert_eq!(app.selected.as_deref(), Some("qa-2"));
         assert_eq!(app.tab, Tab::History);
         assert_eq!(app.camera, camera);
-        assert!(app.scene_visible);
         let mut ui = Simulator::with_size(settings(), (1280.0, 800.0), app.view());
-        let selected = ui.find("Attivo").unwrap().visible_bounds().unwrap();
-        let name = ui.find(label).unwrap().visible_bounds().unwrap();
-        assert!((selected.y - name.y).abs() < 8.0);
         assert!(
             ui.snapshot(&app_theme(dark))
                 .unwrap()

@@ -1882,6 +1882,7 @@ dependencies = [
  "moonitor-agent",
  "moonitor-core",
  "moonitor-store",
+ "rusqlite",
  "serde",
  "serde_json",
  "toml",

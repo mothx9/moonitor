@@ -31,12 +31,12 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/overview-dark.png" />
     <source media="(prefers-color-scheme: light)" srcset="docs/assets/overview-light.png" />
-    <img src="docs/assets/overview-light.png" alt="Moonitor Overview: fleet status, CPU/RAM/GPU timeline, interactive Lab Map, observed models and source availability" width="960" />
+    <img src="docs/assets/overview-light.png" alt="Moonitor V3 native Fleet monitor: comparative resource matrix and received CPU timeline. Explicit synthetic QA fixtures." width="960" />
   </picture>
 </p>
 
 <p align="center">
-  <sub>Actual native app · live telemetry · 23 October 2026 · <a href="docs/assets/overview-light.png">Light</a> / <a href="docs/assets/overview-dark.png">Dark</a></sub>
+  <sub>Native V3 renderer · explicit synthetic QA fixtures · 25 October 2026 · <a href="docs/assets/overview-light.png">Light</a> / <a href="docs/assets/overview-dark.png">Dark</a></sub>
 </p>
 
 Moonitor brings local and remote machines into one desktop workbench. See which
@@ -48,24 +48,32 @@ Built in **Rust**, with **Iced + wgpu** for the desktop. No browser shell, cloud
 account or required monitoring server. This is an actively developed product;
 the [roadmap](#roadmap) separates shipped foundations from planned capabilities.
 
+<details>
+<summary>Single-host resource monitor · native renderer, synthetic QA fixtures</summary>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/host-dark.png" />
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/host-light.png" />
+    <img src="docs/assets/host-light.png" alt="Moonitor V3 host cockpit: compute, individual GPU, memory, I/O, processes and diagnostics. Synthetic QA fixtures." width="960" />
+  </picture>
+</p>
+</details>
+
 ## The workbench
 
 | View | What you can inspect today |
 | :--- | :--- |
-| **Overview** | Monitored nodes, observed model residency, GPU activity, measured GPU board power and an inspectable resource timeline. |
-| **Fleet** | Comparable node inventory, availability and a shared selection model. The Lab Map represents the configured fleet, from 0 to 32 nodes. |
-| **Node detail** | CPU and memory, individual GPUs, sensors, bounded process lists, disk capacity, interface traffic, local AI and recent history. |
-| **Workloads** | Ollama model residency, allocation, quantization and context where exposed by the runtime. |
-| **Energy** | Available GPU board power readings, their scope and measurement coverage. |
-| **Explore** | Five-minute CPU/RAM/GPU charts with time, scale, sample inspection and explicit gaps. |
-| **Events & Settings** | Current source diagnostics, connection/configuration information and collection status. |
+| **Fleet** | Dense comparative host matrix: CPU, RAM, GPU maximum, selected interface RX/TX, state and freshness; filters, sorting, preview and bounded row virtualization. |
+| **Hosts / Host monitor** | A single-node cockpit with CPU/cores, individual GPUs, physical memory/swap, interfaces, filesystems, bounded processes and diagnostics. |
+| **Metrics** | Resource families with drilldown to available readings and their provenance. |
+| **Processes** | Searchable CPU/RSS table; CPU is percent of one core and can exceed 100%. This remains a bounded sample. |
+| **Investigate** | Five-minute CPU/RAM/GPU charts with scale, sample inspection and explicit gaps. |
+| **Events** | Current source diagnostics; a persisted event timeline is not yet available. |
+| **Setup** | Add/edit/remove local, SSH and inventory-only hosts, persistent theme/density/inspector preferences. |
 
-**Moonlight** and **Deep Space** bring lunar whites, midnight blues and periwinkle
-accents to the workbench. Switch between them in **Settings → Aspetto**;
-the selected theme applies to charts, controls and the 3D scene for the session.
-Both themes share the same data model. The 3D Lab Map supports picking,
-camera controls and an alternative list view; it renders on state changes and
-interaction instead of running a decorative animation loop.
+**Moonlight** and **Deep Space** use lunar whites, midnight blues and periwinkle.
+Choose them in **Setup → Appearance**; preferences survive restart. The V3 home
+is a resource matrix. The previous 3D renderer remains in regression tests.
 
 **Keyboard:** `Cmd/Ctrl + 1…7` changes section, `Alt + ←/→` changes node, and
 `Tab` / `Shift + Tab` moves focus. Full assistive-technology support remains open.
@@ -106,7 +114,8 @@ cargo run --release --locked -p moonitor-desktop
 ```
 
 The repository is private; cloning requires access. Without an explicit or
-previously installed `fleet.toml`, the app monitors the local computer only.
+previously installed configuration, the app enrolls the local computer with a
+generated stable ID and displays real metrics. No configuration file is required.
 
 ### macOS app bundle
 
@@ -117,10 +126,10 @@ scripts/run.sh
 This builds and opens `.local/moonitor.app` with the Moonitor icon. The bundle is
 signed ad hoc for local use; a notarized download is not available yet.
 
-On first packaging, `.local/fleet.toml` is installed into Application Support.
-If it does not exist, the script first creates it from the example fleet; edit it
-for your machines. Existing installed configuration is preserved, and private
-configuration is never embedded in the app bundle.
+The app creates a versioned `settings.sqlite` registry on first run. A previous
+`fleet.toml` in the profile is imported once, preserving node IDs, the original file
+and the separate history database. Packaging never embeds or copies a developer's
+private fleet into a new installation.
 
 | Platform | Default configuration and history directory |
 | :--- | :--- |
@@ -131,46 +140,28 @@ Use `--config PATH` and `--data-dir PATH` to select explicit locations.
 
 ## Connect your fleet
 
-Create `.local/fleet.toml` with your node definitions. Remote nodes use aliases
-from your existing SSH configuration, with trusted host keys.
+Open **Setup → Hosts & Connections → Add host**. Choose this computer, SSH,
+or inventory-only. Enter a display name, destination alias/FQDN/IP, optional SSH
+user/port and the path of an already installed compatible agent. Save applies the
+configuration; IDs remain stable when labels change. Removal keeps history.
 
-```toml
-[[nodes]]
-id = "workstation"
-label = "Workstation"
-kind = "local"
-visual_kind = "laptop"
-
-[[nodes]]
-id = "gpu-node"
-label = "GPU server"
-kind = "ssh"
-ssh_alias = "my-gpu-server"
-visual_kind = "tower"
-
-[[nodes]]
-id = "phone"
-label = "Phone"
-kind = "unavailable"
-visual_kind = "phone"
-```
-
-Build `moonitor-agent` for each remote node's OS and architecture, then install it
-using the existing SSH connection:
+SSH uses the system client's keys and `known_hosts`, strict host-key checks and
+batch mode. Moonitor does not accept unknown keys or install agents automatically.
+Use your trusted administration workflow to build/install a compatible agent for
+the destination's OS/architecture. An optional explicit installer is available:
 
 ```sh
 cargo build --release --locked -p moonitor-agent
-scripts/install-agent.sh my-gpu-server /path/to/target-compatible/moonitor-agent
-cargo run --release --locked -p moonitor-desktop -- --config .local/fleet.toml
+scripts/install-agent.sh compute.example /path/to/target-compatible/moonitor-agent
 ```
 
-The local build command targets the current machine; use a compatible build for
-each remote host. The installer stores binaries by content hash and refuses to
-replace an unmanaged agent. The desktop starts agents over persistent SSH and
-closes its SSH children on exit. No agent listener or background service is added.
-
-See the [complete configuration example](config/fleet.example.toml) for supported
-node metadata. At most one node collects locally; up to 32 nodes can be configured.
+The [legacy configuration example](config/fleet.example.toml) is optional import
+material. `--config PATH` supplies the initial import only when the registry does
+not exist. `--data-dir PATH` selects an isolated profile. One local collector is
+allowed. Inventories are bounded by a 1 MiB serialized settings budget; this first
+engine supports **32 simultaneous collection streams**, independently of inventory
+size. Additional nodes show an explicit capacity state. Fleet rendering is tested
+with 500 fixture hosts; that does not qualify 500 concurrent SSH streams.
 
 ## Architecture
 
@@ -188,12 +179,13 @@ flowchart LR
         Model["Fleet and metric view models"]
         Store[("SQLite WAL<br/>local summaries")]
         UI["Iced workbench<br/>charts and node detail"]
-        Map["wgpu Lab Map<br/>or list view"]
+        Registry[("Versioned settings<br/>host registry + preferences")]
         Engine --> Model
         Engine --> Store
         Store -->|recent history| Model
         Model --> UI
-        Model --> Map
+        Registry --> Engine
+        UI --> Registry
     end
     Local --> Engine
     Remote -->|persistent SSH| Engine
@@ -204,7 +196,7 @@ flowchart LR
 | [`moonitor-core`](crates/moonitor-core) | Shared telemetry types, availability, source/quality metadata and snapshot validation. |
 | [`moonitor-agent`](crates/moonitor-agent) | Read-only platform, GPU and runtime collection at different polling intervals. |
 | [`moonitor-store`](crates/moonitor-store) | SQLite WAL, five-second summaries and seven-day retention. |
-| [`moonitor-desktop`](crates/moonitor-desktop) | Configuration, collection lifecycle, SSH, ingestion, view models, native UI and scene rendering. |
+| [`moonitor-desktop`](crates/moonitor-desktop) | Versioned settings, collection lifecycle, SSH, ingestion, view models and native resource workspaces. |
 
 The diagram describes the current implementation. An optional always-on hub and
 a normalized observation/event store belong to later milestones.
@@ -224,16 +216,18 @@ a normalized observation/event store belong to later milestones.
 
 | Milestone | Scope | Status |
 | :--- | :--- | :--- |
-| **W0 · Foundation** | Preserve the native migration; correct metrics, fleet state, scene selection and regression coverage. | Implemented; remaining qualification gates documented. |
-| **W1 · Workbench** | New shell, data-first Overview, node detail, shared components and light/dark themes. | Implemented; visual approval and accessibility work remain. |
-| **W2 · Timeline** | Normalized observations, versioned storage, events and historical exploration. | Planned. |
-| **W3 · AI & energy** | Instrumented requests, runtime adapters, measured efficiency and energy with coverage. | Planned. |
-| **W4 · Delivery** | Release packaging, update/rollback, recovery, soak tests and operational diagnostics. | Planned. |
+| **V3 W1 · First vertical slice** | Fleet-first native shell, host cockpit, settings persistence and GUI host CRUD; legacy import. | Implemented; qualification and remaining gates documented. |
+| **V2 W2 · Controller / Agent** | Headless lifecycle, authenticated protocol, services, remote management. | Planned. |
+| **V2 W3 · Discovery** | LAN, VPN peer providers and explicit enrollment/trust. | Planned. |
+| **V2 W4 · Telemetry / Investigate** | Component history, events, services, request-level AI and energy coverage. | Planned. |
+| **V2 W5 · Release** | Privacy/history audit, author-selected license, signing, packaging, accessibility and soak. | Planned. |
 
-The [professional upgrade blueprint](docs/moonitor-professional-upgrade-blueprint.md)
-defines the target. The [audit and acceptance gates](docs/moonitor-w0-audit-and-plan.md)
-track the implementation constraints. Performance figures are measurements under
-documented conditions, not universal guarantees.
+The supplied [V3 UI specification](docs/moonitor-v2/reference/Moonitor-V3-UI-Architecture.md)
+replaces the former W1 layout. Read the [product contract](docs/moonitor-v2/product-requirements.md),
+[UX system](docs/moonitor-v2/ux-design-system.md) and [qualification](docs/moonitor-v2/qualification.md).
+The earlier blueprint and W0/W1 reports are historical evidence, not approval of
+this design. The repository remains private; current-file cleanup does not scrub
+Git history or authorize public release.
 
 ## Development
 

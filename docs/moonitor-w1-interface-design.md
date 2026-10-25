@@ -1,5 +1,7 @@
 # W1 — redesign della shell e delle viste operative
 
+> Historical revision. The [V3 contract](moonitor-v2/product-requirements.md) replaces the former layout and session-only preferences. Measurements below refer to that earlier build.
+
 23 ottobre 2026. Dopo la consolidazione W0, l'utente ha chiarito che si aspettava
 un redesign completo dell'interfaccia. Questa wave cambia struttura e gerarchia
 visiva, mantenendo collector, transport, SQLite e rendering Iced/wgpu.

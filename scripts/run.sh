@@ -6,5 +6,5 @@ if [ "$(uname -s)" = Darwin ]; then
   open "$repo_dir/.local/moonitor.app"
 else
   cd "$repo_dir"
-  exec cargo run --release --locked -p moonitor-desktop -- --config config/fleet.example.toml
+  exec cargo run --release --locked -p moonitor-desktop
 fi

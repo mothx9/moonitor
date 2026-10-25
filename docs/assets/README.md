@@ -1,25 +1,15 @@
-# README previews
+# Native V3 interface previews
 
-`overview-light.png` and `overview-dark.png` are direct screenshots from the
-native Moonitor application on macOS, captured on 23 October 2026 at a logical
-window size of 1440×900. They show the Moonlight and Deep Space themes introduced
-in this revision; qualification is recorded in [the theme report](../moonitor-lunar-themes.md).
+`overview-light.png` / `overview-dark.png` and `host-light.png` / `host-dark.png`
+are direct screenshots from the native Iced/wgpu test renderer on macOS.
+They contain **explicit synthetic QA fixtures**, not telemetry from a personal lab.
+Capture: 25 October 2026, logical 1440×900, both Moonlight and Deep Space.
 
-They show live telemetry from the configured fleet, with recent history seeded
-from a read-only SQLite backup into an isolated, ignored QA data directory.
-The two themes were captured sequentially, so their readings can differ. No
-synthetic metrics or retouching were used. Only the Overview is included; it
-contains node display names and resource readings, without connection addresses,
-process command lines or runtime prompts.
+The fixture module is `cfg(test)` and is never compiled into the production binary.
+No production demo mode or synthetic readings were added. The public preview files
+are copied unchanged from the V3 visual matrix; personal live captures remain ignored.
 
-Capture procedure, from the repository root after preparing the isolated history:
-
-```sh
-./target/release/moonitor --config .local/fleet.toml \
-  --data-dir .local/qa/lunar/live-data --theme light --size 1440x900 \
-  --screenshot docs/assets/overview-light.png --exit-after 12
-```
-
-Repeat with `--theme dark` and `overview-dark.png`. QA databases and logs remain in
-`.local/qa/lunar/` for the current theme captures and are not committed. These previews document appearance;
-they are not performance benchmarks or independent visual acceptance.
+Run `MOONITOR_QA_DIR="$PWD/.local/qa/v3/visual-v3" scripts/qa-ui.sh` for the matrix.
+See [qualification](../moonitor-v2/qualification.md). Candidates are reproducible
+visual evidence, not an independent design approval. Current-file cleanup does not
+remove earlier images from Git history; public release requires a separate audit.

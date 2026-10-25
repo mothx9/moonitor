@@ -74,14 +74,14 @@ Stati: **PASS** solo con evidenza registrata, **FAIL** difetto riprodotto, **PEN
 3. Flotte 0/1/2/5/16/32; >32/duplicate invalidi; 5→1 e reorder conservano identità e numero asset; click stesso ID in scena/inventario/dettaglio. Nessun live finto per iPhone.
 4. Overview/AI/History/Processi a 1280×800, 1440×900 e 3840×2160 logici, light/dark, Mac/Linux; dichiarare scale factor fisico, renderer/font. Click, keyboard, scroll, tooltip, empty, stale. Nessuna auto-approvazione di un nuovo golden: baseline nuova richiede review.
 5. Confronto idle scena visibile/elenco e foreground/background, CPU di un core, RSS endpoint, contatori pass render. La soglia preliminare <2%/<150MiB non è una promessa. Latenza p95 ricezione→presentazione <1s va strumentata, non dedotta dal timer 1s.
-6. Exon e Spark: paired inference collector off/on, ≥5 repliche, input/model/runtime/version/hash, warmup, throughput e TTFT/p95, potenza con scope, statistiche e intervalli confidenza. Nessun carico concorrente modificato; se non isolabile dichiarare confondenti.
+6. GPU workstation e Spark: paired inference collector off/on, ≥5 repliche, input/model/runtime/version/hash, warmup, throughput e TTFT/p95, potenza con scope, statistiche e intervalli confidenza. Nessun carico concorrente modificato; se non isolabile dichiarare confondenti.
 7. Persona diversa dallo sviluppatore identifica CPU/GPU/stato dagli screenshot e dalla build. Gate umano esplicitamente aperto finché non c'è riscontro.
 
 ## Vincoli e rischi residui
 
 - Linux GUI e dark theme non diventano qualificati perché Mac compila. Il tema attuale contiene colori fissi; la matrice dark è un requisito aperto finché non implementato e ispezionato.
 - Il canvas 3D richiede wgpu; un elenco senza scena riduce lavoro grafico, ma non prova fallback su macchina priva di backend GPU. Accessibilità assistiva e native behavior richiedono test reali.
-- Exon è un host condiviso con carico elevato e swap già utilizzato al controllo iniziale. Build e benchmark devono avere limiti di memoria/concorrenza; non arrestare workload altrui. Spark non aveva runtime in PATH né modello piccolo già qualificato alla prima ricognizione; trovare/qualificare un runtime è una dipendenza del benchmark, non una licenza per inventarne i risultati.
+- GPU workstation è un host condiviso con carico elevato e swap già utilizzato al controllo iniziale. Build e benchmark devono avere limiti di memoria/concorrenza; non arrestare workload altrui. Spark non aveva runtime in PATH né modello piccolo già qualificato alla prima ricognizione; trovare/qualificare un runtime è una dipendenza del benchmark, non una licenza per inventarne i risultati.
 - Le misure di ottobre 22 in `.local/qa` sono baseline esplorative pre-W0; non sono risultati delle nuove modifiche.
 - Screenshot con dati reali, config, IP/alias e processi restano locali. Fixture QA hanno nomi generici e vengono compilate solo nei test.
 - Non si promette un process manager completo, autonomia always-on, throughput AI, energia whole-device, release distribuita o approvazione visiva prima dei rispettivi gate.

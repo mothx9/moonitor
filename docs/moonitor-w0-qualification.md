@@ -41,7 +41,7 @@ video storico dell'utente come semplice problema di acquisizione.
   snapshot doppi identici; click navigazione, picking con ID generici, input tastiera,
   filtro, scroll, flotta vuota e nodo senza agente. Scala headless 2: 4K logico
   produce 7680×4320 fisici. I PNG sono specifici del renderer/piattaforma.
-- Linux Arch/Exon: test Rust e matrice grafica headless wgpu. Il primo run con
+- Linux Arch/GPU workstation: test Rust e matrice grafica headless wgpu. Il primo run con
   molti renderer nel medesimo processo falliva creando un device dopo due
   screenshot 4K; isolando ogni caso in un processo, la matrice termina. Cgroup
   massimo 4 GiB e due core, nessun workload preesistente arrestato.
@@ -53,7 +53,7 @@ video storico dell'utente come semplice problema di acquisizione.
 Artefatti privati in `.local/qa/w0/`. I risultati del 22 ottobre restano storici,
 non vengono riutilizzati come attestazioni di questa build.
 
-- Exon, Qwen2.5-Coder-7B Q4_K_M già presente, llama.cpp 7156, 166 token di prompt
+- GPU workstation, Qwen2.5-Coder-7B Q4_K_M già presente, llama.cpp 7156, 166 token di prompt
   senza cache e 512 generati, warmup, cinque coppie off/on con ordine alternato:
   mediana variazione throughput **+0,865%**, bootstrap CI95 **[−0,942%; +2,465%]**.
   TTFT p95 esplorativo: **80,35 ms off / 81,87 ms on**. Nessuna regressione

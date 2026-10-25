@@ -9,16 +9,16 @@
   conservative AI process classification, safe SSH aliases, duplicate node IDs,
   bounded streaming frames, and SQLite null/zero/retention/history behavior.
 - Release agents compile on Linux x86_64 and ARM64. The x86 binary runs on both
-  Arch Exon and Debian 12 Zima; its highest imported GLIBC version is 2.34.
-- The native macOS desktop receives simultaneous live snapshots from the MacBook,
-  Exon, Spark and Zima. Actual CPU/core counts, RAM, network and disk observations
+  Arch GPU workstation and Debian 12 headless node; its highest imported GLIBC version is 2.34.
+- The native macOS desktop receives simultaneous live snapshots from the macOS target,
+  GPU workstation, Spark and headless node. Actual CPU/core counts, RAM, network and disk observations
   are available; NVIDIA and Apple GPU fields are populated where supported.
 - The Spark's unsupported NVML memory fields remain unavailable, not zero. Its
   GPU is explicitly identified as using unified memory.
 - Actual four-node summaries appear in SQLite, and `PRAGMA quick_check` returns `ok`.
-- Fleet and Exon overview screenshots were inspected at the native viewport.
+- Fleet and GPU workstation overview screenshots were inspected at the native viewport.
 - The Spark AI view was inspected during a controlled interruption of the
-  desktop's own Exon SSH child. Exon retained its last readings with an obsolete
+  desktop's own GPU workstation SSH child. GPU workstation retained its last readings with an obsolete
   status, and later samples resumed after a 15.9-second gap. Other nodes continued
   producing samples, SQLite remained healthy, and the desktop closed on schedule.
 - The local `.app` is packaged and ad-hoc signed. This is a local development
@@ -37,9 +37,9 @@ RSS values are the larger of two endpoint observations, not a measured peak or P
 | Process | CPU, one core | Endpoint RSS |
 | --- | ---: | ---: |
 | Desktop plus local collector | 9.73% | 128.2 MiB |
-| Exon agent | 0.68% | 29.3 MiB |
+| GPU workstation agent | 0.68% | 29.3 MiB |
 | Spark agent | 0.31% | 21.7 MiB |
-| Zima agent | 1.62% | 3.0 MiB |
+| headless node agent | 1.62% | 3.0 MiB |
 
 The desktop's three local SSH children each used approximately 5.8–6.0 MiB RSS;
 their CPU increments were below the display resolution in this short window.
@@ -74,7 +74,7 @@ inference request was initiated for qualification.
   SMART remain planned.
 - SQLite retains seven days of summaries, but the current UI charts only the
   last five minutes. No seven-day soak or old-history aggregation is claimed.
-- The desktop must run to collect history. Always-on Zima collection and Mac
+- The desktop must run to collect history. Always-on headless node collection and Mac
   sleep/wake/LAN roaming qualification remain follow-up work.
 - IOKit accelerator statistics are best-effort counters tied to the platform.
   No privileged sensor helper, public endpoint or background launch service was added.

@@ -3,7 +3,7 @@ use anyhow::{Result, bail};
 use moonitor_core::{HostSnapshot, MAX_MESSAGE_BYTES, now_ms};
 use moonitor_store::{HistoryPoint, Store, memory_percent};
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     io::{BufRead, BufReader, Read},
     path::PathBuf,
     process::{Child, Command, Stdio},
@@ -21,6 +21,7 @@ const HISTORY_LIMIT: usize = 720;
 #[derive(Clone)]
 pub struct NodeState {
     pub config: NodeConfig,
+    pub capacity_limited: bool,
     pub sample: Option<Arc<HostSnapshot>>,
     pub last_seen: Option<Instant>,
     pub error: Option<String>,
@@ -44,10 +45,16 @@ pub struct Engine {
     pub state: Arc<Mutex<State>>,
     stop: Arc<AtomicBool>,
     children: Vec<ChildSlot>,
+    workers: Vec<thread::JoinHandle<()>>,
+}
+impl std::fmt::Debug for Engine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Engine").finish_non_exhaustive()
+    }
 }
 enum Event {
-    Snapshot(usize, Arc<HostSnapshot>, u64, Instant),
-    Error(usize, String),
+    Snapshot(String, Arc<HostSnapshot>, u64, Instant),
+    Error(String, String),
 }
 
 impl Engine {
@@ -60,6 +67,7 @@ impl Engine {
                 .iter()
                 .map(|c| NodeState {
                     config: c.clone(),
+                    capacity_limited: false,
                     sample: None,
                     last_seen: None,
                     error: None,
@@ -72,7 +80,7 @@ impl Engine {
         let (tx, rx) = mpsc::sync_channel(16);
         let shared = state.clone();
         let stopped = stop.clone();
-        thread::spawn(move || {
+        let ingestor = thread::spawn(move || {
             let mut store = match Store::open(&db_path) {
                 Ok(s) => Some(s),
                 Err(e) => {
@@ -89,25 +97,40 @@ impl Engine {
                     }
                 }
             }
-            let mut last_saved = vec![0u64; config.nodes.len()];
+            let mut last_saved = HashMap::<String, u64>::new();
             let mut last_prune = 0u64;
             while !stopped.load(Ordering::Relaxed) {
-                let Ok(event) = rx.recv_timeout(Duration::from_secs(1)) else {
-                    continue;
+                let event = match rx.recv_timeout(Duration::from_secs(1)) {
+                    Ok(event) => event,
+                    Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
                 };
                 match event {
-                    Event::Error(index, e) => shared.lock().unwrap().nodes[index].error = Some(e),
-                    Event::Snapshot(index, snapshot, received, seen) => {
+                    Event::Error(id, e) => {
+                        if let Some(node) = shared
+                            .lock()
+                            .unwrap()
+                            .nodes
+                            .iter_mut()
+                            .find(|n| n.config.id == id)
+                        {
+                            node.error = Some(e);
+                        }
+                    }
+                    Event::Snapshot(id, snapshot, received, seen) => {
+                        let Some(index) = config.nodes.iter().position(|n| n.id == id) else {
+                            continue;
+                        };
                         if let Err(e) = snapshot.validate(&config.nodes[index].id) {
                             shared.lock().unwrap().nodes[index].error = Some(e);
                             continue;
                         }
-                        if received.saturating_sub(last_saved[index]) >= 5000
+                        if received.saturating_sub(*last_saved.get(&id).unwrap_or(&0)) >= 5000
                             && let Some(db) = &mut store
                         {
                             match db.append(&snapshot, received) {
                                 Ok(()) => {
-                                    last_saved[index] = received;
+                                    last_saved.insert(id.clone(), received);
                                     shared.lock().unwrap().storage_error = None;
                                 }
                                 Err(e) => {
@@ -147,22 +170,44 @@ impl Engine {
             }
         });
         let mut children = Vec::new();
+        let mut workers = vec![ingestor];
         // The ingestor owns its configuration; workers use the same validated node list.
-        let nodes: Vec<_> = state
+        let mut nodes: Vec<_> = state
             .lock()
             .unwrap()
             .nodes
             .iter()
             .map(|n| n.config.clone())
             .collect();
-        for (index, node) in nodes.into_iter().enumerate() {
+        nodes.sort_by_key(|n| match n.kind {
+            NodeKind::Local => 0,
+            NodeKind::Ssh => 1,
+            NodeKind::Unavailable => 2,
+        });
+        let mut active = 0;
+        for node in nodes {
+            if node.kind != NodeKind::Unavailable {
+                if active >= 32 {
+                    if let Some(n) = state
+                        .lock()
+                        .unwrap()
+                        .nodes
+                        .iter_mut()
+                        .find(|n| n.config.id == node.id)
+                    {
+                        n.capacity_limited = true;
+                    }
+                    continue;
+                }
+                active += 1;
+            }
             let stopped = stop.clone();
             let sender = tx.clone();
             let dropped = dropped.clone();
             match node.kind {
                 NodeKind::Local => {
-                    thread::spawn(move || {
-                        let mut collector = moonitor_agent::Collector::new(node.id);
+                    workers.push(thread::spawn(move || {
+                        let mut collector = moonitor_agent::Collector::new(node.id.clone());
                         thread::sleep(Duration::from_millis(300));
                         while !stopped.load(Ordering::Relaxed) {
                             let tick = Instant::now();
@@ -170,25 +215,24 @@ impl Engine {
                             enqueue(
                                 &sender,
                                 &dropped,
-                                Event::Snapshot(index, sample, now_ms(), Instant::now()),
+                                Event::Snapshot(node.id.clone(), sample, now_ms(), Instant::now()),
                             );
                             thread::sleep(Duration::from_secs(1).saturating_sub(tick.elapsed()));
                         }
-                    });
+                    }));
                 }
                 NodeKind::Ssh => {
                     let child = Arc::new(Mutex::new(None));
                     children.push(child.clone());
-                    thread::spawn(move || {
+                    workers.push(thread::spawn(move || {
                         while !stopped.load(Ordering::Relaxed) {
-                            let result =
-                                remote_stream(&node, index, &sender, &child, &stopped, &dropped);
+                            let result = remote_stream(&node, &sender, &child, &stopped, &dropped);
                             if !stopped.load(Ordering::Relaxed) {
                                 enqueue(
                                     &sender,
                                     &dropped,
                                     Event::Error(
-                                        index,
+                                        node.id.clone(),
                                         result
                                             .err()
                                             .map(|e| e.to_string())
@@ -203,7 +247,7 @@ impl Engine {
                                 }
                             }
                         }
-                    });
+                    }));
                 }
                 NodeKind::Unavailable => (),
             }
@@ -212,6 +256,7 @@ impl Engine {
             state,
             stop,
             children,
+            workers,
         }
     }
 }
@@ -225,12 +270,14 @@ impl Drop for Engine {
                 let _ = child.wait();
             }
         }
+        for worker in self.workers.drain(..) {
+            let _ = worker.join();
+        }
     }
 }
 
 fn remote_stream(
     node: &NodeConfig,
-    index: usize,
     tx: &mpsc::SyncSender<Event>,
     slot: &ChildSlot,
     stop: &AtomicBool,
@@ -241,7 +288,14 @@ fn remote_stream(
         .as_deref()
         .unwrap_or(".local/bin/moonitor-agent");
     let command = format!("exec {agent} --node-id {} --interval-ms 1000", node.id);
-    let mut child = Command::new("ssh")
+    let mut ssh = Command::new("ssh");
+    if let Some(user) = &node.ssh_user {
+        ssh.args(["-l", user]);
+    }
+    if let Some(port) = node.ssh_port {
+        ssh.args(["-p", &port.to_string()]);
+    }
+    let mut child = ssh
         .args([
             "-T",
             "-oBatchMode=yes",
@@ -279,7 +333,12 @@ fn remote_stream(
             enqueue(
                 tx,
                 dropped,
-                Event::Snapshot(index, Arc::new(snapshot), now_ms(), Instant::now()),
+                Event::Snapshot(
+                    node.id.clone(),
+                    Arc::new(snapshot),
+                    now_ms(),
+                    Instant::now(),
+                ),
             );
         }
         Ok(())
@@ -315,11 +374,40 @@ pub fn read_frame(reader: &mut impl BufRead) -> Result<Option<Vec<u8>>> {
 mod tests {
     use super::*;
     #[test]
+    fn empty_fleet_ingestion_exits_instead_of_spinning_on_disconnected_channel() {
+        let path = std::env::temp_dir().join(format!(
+            "moonitor-empty-{}-{}.sqlite",
+            std::process::id(),
+            now_ms()
+        ));
+        let engine = Engine::start(Config { nodes: vec![] }, path.clone());
+        for _ in 0..100 {
+            if engine.workers[0].is_finished() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(
+            engine.workers[0].is_finished(),
+            "Empty fleets must not busy-loop"
+        );
+        drop(engine);
+        let _ = std::fs::remove_file(path);
+    }
+    #[test]
     fn bounded_ingress_accounts_for_dropped_events() {
         let (tx, _rx) = mpsc::sync_channel(1);
         let dropped = AtomicU64::new(0);
-        enqueue(&tx, &dropped, Event::Error(0, "first".into()));
-        enqueue(&tx, &dropped, Event::Error(0, "second".into()));
+        enqueue(
+            &tx,
+            &dropped,
+            Event::Error("fixture".into(), "first".into()),
+        );
+        enqueue(
+            &tx,
+            &dropped,
+            Event::Error("fixture".into(), "second".into()),
+        );
         assert_eq!(dropped.load(Ordering::Relaxed), 1);
     }
     #[test]

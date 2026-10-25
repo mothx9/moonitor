@@ -1,5 +1,7 @@
 # Moonitor · Professional Upgrade Blueprint
 
+> Documento storico fornito dal proprietario. Le etichette dell’inventario privato sono state rese generiche; originale preservato nel checkpoint locale. La direzione UI corrente è il [contratto V3](moonitor-v2/product-requirements.md).
+
 Data review: 23 ottobre 2026  
 Target: Moonitor 2.0, desktop-native local-first observability for personal compute and AI labs  
 Repository: mothx9/moonitor (privato)  
@@ -156,7 +158,7 @@ flowchart LR
   UI --> CH[Charts / workload explorer / alerts]
 ```
 
-Deployment phase 1: agent read-only e SSH persistente come ora; desktop locale operativo e fallback offline. Phase 2: moonitor-hub opzionale headless always-on su Zima, riceve/coordina campioni dai nodi e persiste storico senza desktop aperto, con spool/replay e deduplication. I nodi più sensibili non devono necessariamente esporre un listener: preferire SSH fidato o canale outbound autenticato, scegliendo esplicitamente transport policy. Autorizzazioni di rete minimali.
+Deployment phase 1: agent read-only e SSH persistente come ora; desktop locale operativo e fallback offline. Phase 2: moonitor-hub opzionale headless always-on su headless node, riceve/coordina campioni dai nodi e persiste storico senza desktop aperto, con spool/replay e deduplication. I nodi più sensibili non devono necessariamente esporre un listener: preferire SSH fidato o canale outbound autenticato, scegliendo esplicitamente transport policy. Autorizzazioni di rete minimali.
 
 Persistence: partire da SQLite e migrazioni forward-only versionate. Tabelle per entities, metric descriptors, timestamped samples (con status), events, runtime/workload runs, alert states, source diagnostics. Rollups (1s/10s/1m/5m) e retention configurabile; nessun ingresso illimitato di labels/cardinalità. La dashboard non interroga continuamente snapshots completi. Non introdurre Prometheus/ClickHouse senza un benchmark che lo giustifichi; supportare import/export OpenTelemetry e Prometheus come adapters, non come obbligo di infrastruttura.
 
@@ -172,7 +174,7 @@ Alerts: rule engine locale read-only, threshold+durata, dedup e quiet period, pr
 2. Riprodurre e correggere le metriche illeggibili con una single source of truth per text/bar/tooltip, fallback esplicito N/D, zero visualizzato come 0%.
 3. Eliminare nodi hardcoded, rendere la scena derivata dalla config e da NodeState, usare veramente stati availability/freshness nel rendering; test con 0 (empty UX), 1, 2, 5, 16, 32 nodi (distinguendo le config non valide).
 4. Test UI con screenshot di Overview/AI/History/Processi in 1280x800, 1440x900, 4K, light/dark, Mac e Linux; click/keyboard/scroll/modal/empty/stale.
-5. A/B baseline dei collector con inferenza AI su Exon e Spark; screenshot e video della build verificata, non solo cargo test.
+5. A/B baseline dei collector con inferenza AI su GPU workstation e Spark; screenshot e video della build verificata, non solo cargo test.
 
 Gate W0: una persona diversa da chi sviluppa riconosce stato dei dispositivi e valori CPU/GPU senza ambiguità; visual diff e interazioni riproducibili; repo/bundle/local allineati.
 
@@ -191,7 +193,7 @@ Gate W1: niente valori fuori viewport senza ragione; ogni view deve rispondere a
 2. Conservare i singoli componenti e serie importanti, eventi temporali e stati runtime.
 3. Time ranges multipli, downsampling, zoom, inspect, comparazione per nodo e correlazione di eventi.
 4. Separare ingestion, query e view models; errori e dropped samples visibili.
-5. Valutare hub always-on su Zima solo dopo lo storage locale stabile.
+5. Valutare hub always-on su headless node solo dopo lo storage locale stabile.
 
 Gate W2: recuperare sessioni storiche con desktop chiuso (quando hub attivo), grafici non collegano gap, unavailable/stale/source verificati su scenari sintetici.
 
@@ -245,7 +247,7 @@ Prima PR consigliata, strettamente limitata: W0 - checkpoint Iced UI + correctne
 - Test automatici su flotta variabile e availability state.
 - Rendere metric label/value/bar/tooltips un'unica componente tipizzata con unavailable supportato.
 - Snapshot/interaction tests per schermate e dimensioni, con artifacts registrati in .local/qa ignorata.
-- Benchmark A/B su Mac con scena idle e caricata; Exon/Spark con carico AI rappresentativo.
+- Benchmark A/B su Mac con scena idle e caricata; GPU workstation/Spark con carico AI rappresentativo.
 - Niente nuove sezioni decorative o librerie prima che i gate P0 siano superati.
 
 Seconda PR: W1 - design system / information architecture scaffold con fixture canoniche e schermate Overview, Fleet e Workloads; 3D ridotta e semanticamente utile.

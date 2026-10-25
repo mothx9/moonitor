@@ -860,7 +860,7 @@ fn geometry(devices: &[DeviceSceneModel]) -> Vec<Vertex> {
         let indicator = [0.66, 0.67, 0.96];
         match device.kind {
             VisualKind::Laptop => {
-                // MacBook, open lid, keyboard and trackpad.
+                // Laptop, open lid, keyboard and trackpad.
                 m.rotation = Mat4::from_rotation_y(-0.12);
                 m.box3(
                     Vec3::new(0.0, 0.06, 0.0),
@@ -940,7 +940,7 @@ fn geometry(devices: &[DeviceSceneModel]) -> Vec<Vertex> {
                 m.origin = base;
             }
             VisualKind::Tower => {
-                // Exon workstation, perforated front and side panel.
+                // Workstation, perforated front and side panel.
                 m.rotation = Mat4::from_rotation_y(0.12);
                 m.box3(
                     Vec3::new(0.0, 0.93, 0.0),
@@ -1038,7 +1038,7 @@ fn geometry(devices: &[DeviceSceneModel]) -> Vec<Vertex> {
                 );
             }
             VisualKind::Board => {
-                // Zima board with heatsink, ports and visible circuit board.
+                // Single-board device with heatsink, ports and visible circuit board.
                 m.rotation = Mat4::from_rotation_y(-0.20);
                 m.box3(
                     Vec3::new(0.0, 0.105, 0.0),

@@ -14,14 +14,10 @@ mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources"
 cp target/release/moonitor "$app_dir/Contents/MacOS/moonitor"
 scripts/build-icons.sh
 cp .local/moonitor.icns "$app_dir/Contents/Resources/moonitor.icns"
-if [ ! -f .local/fleet.toml ]; then cp config/fleet.example.toml .local/fleet.toml; fi
 config_dir="$HOME/Library/Application Support/moonitor"
 mkdir -p "$config_dir"
-# Preserve an existing user configuration. Never embed private fleet data in a bundle.
-if [ ! -e "$config_dir/fleet.toml" ]; then
-  cp .local/fleet.toml "$config_dir/fleet.toml"
-  chmod 600 "$config_dir/fleet.toml"
-fi
+# First run enrolls the local computer. Existing legacy config is imported in-app.
+# Never install a developer's .local fleet into another user's profile.
 if [ -f "$app_dir/Contents/Resources/fleet.toml" ]; then
   backup_dir="$repo_dir/.local/checkpoints/$(date -u +%Y%m%dT%H%M%SZ)-bundle-config"
   mkdir -p "$backup_dir"
@@ -34,7 +30,7 @@ cat > "$app_dir/Contents/Info.plist" <<'PLIST'
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>CFBundleExecutable</key><string>moonitor</string>
-<key>CFBundleIdentifier</key><string>dev.maiomascio.moonitor</string>
+<key>CFBundleIdentifier</key><string>org.moonitor.desktop</string>
 <key>CFBundleName</key><string>moonitor</string>
 <key>CFBundleIconFile</key><string>moonitor.icns</string>
 <key>CFBundlePackageType</key><string>APPL</string>

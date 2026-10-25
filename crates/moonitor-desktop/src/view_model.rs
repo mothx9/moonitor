@@ -14,10 +14,13 @@ pub enum NodeStatus {
     Unreachable,
     Uninstrumented,
     Connecting,
+    CapacityLimited,
 }
 impl NodeStatus {
     pub fn of(node: &NodeState, now: Instant) -> Self {
-        if matches!(node.config.kind, NodeKind::Unavailable) {
+        if node.capacity_limited {
+            Self::CapacityLimited
+        } else if matches!(node.config.kind, NodeKind::Unavailable) {
             Self::Uninstrumented
         } else if node.sample.is_some() {
             if node.error.is_none()
@@ -42,6 +45,7 @@ impl NodeStatus {
             Self::Unreachable => "Non raggiungibile",
             Self::Uninstrumented => "Non strumentato",
             Self::Connecting => "In connessione",
+            Self::CapacityLimited => "In attesa · capacità",
         }
     }
     pub fn color(self) -> [f32; 3] {
@@ -52,6 +56,7 @@ impl NodeStatus {
             Self::Unreachable => palette::DANGER,
             Self::Uninstrumented => palette::UNKNOWN,
             Self::Connecting => palette::CONNECTING,
+            Self::CapacityLimited => palette::AMBER,
         };
         [color.r, color.g, color.b]
     }
@@ -251,12 +256,15 @@ mod tests {
     pub fn nodes(count: usize) -> Vec<NodeState> {
         (0..count)
             .map(|i| NodeState {
+                capacity_limited: false,
                 config: NodeConfig {
                     id: format!("node-{i}"),
                     label: format!("Node {i}"),
                     kind: NodeKind::Unavailable,
                     visual_kind: VisualKind::Compact,
                     ssh_alias: None,
+                    ssh_user: None,
+                    ssh_port: None,
                     remote_agent: None,
                     note: String::new(),
                 },
@@ -354,5 +362,16 @@ mod tests {
         }
         assert_eq!(reasons.len(), 4);
         assert!(Metric::percent("CPU", None, false).value.is_none());
+    }
+    #[test]
+    fn invalid_ingress_is_rejected_but_multicore_process_cpu_is_valid() {
+        let mut s = crate::fixtures::sample("node");
+        s.processes[0].cpu_percent = 230.0;
+        assert!(s.validate("node").is_ok());
+        s.cpu_cores_percent[0] = f32::NAN;
+        assert!(s.validate("node").is_err());
+        s.cpu_cores_percent[0] = 0.0;
+        s.gpus[0].utilization_percent = Reading::reported(101.0, "fixture", 0);
+        assert!(s.validate("node").is_err());
     }
 }

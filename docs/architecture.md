@@ -18,7 +18,7 @@ computer through an existing trusted SSH alias. Newline-delimited JSON snapshots
 flow through those persistent SSH sessions. Remote agents listen on no ports and
 exit when their output pipe closes. The desktop closes SSH children on normal exit.
 
-An optional always-on collector/store on Zima is still planned. Current history
+An optional headless Controller is planned in V2 W2. Current history
 collection requires the desktop to remain running.
 
 SSH uses batch authentication, strict known-host checking, bounded connection
@@ -54,21 +54,32 @@ seconds. Snapshot transmission and basic counters run at one-second intervals.
 The initial process list contains bounded CPU-heavy processes and AI name matches,
 not an exhaustive process census.
 
-The primary shell has Overview, Fleet, Workloads, Energy, Events, Explore and Settings.
-Processes, compute, sensors, AI, storage, network and history live in node detail.
-`ui/workbench.rs` owns the screen composition; `ui/chart.rs` renders receipt-time
-series with explicit gaps and nearest-sample inspection; `ui.rs` retains application
-state, reusable metric components and resource views. The chart window uses the
-UI polling timestamp, frozen in tests for reproducibility. W1 introduces no new
-collector API. The existing Iced image feature is enabled for the supplied brand
-asset; its two additional transitive packages are documented in assets/brand/README.md.
-Rendering uses Iced 0.14 and wgpu, with one-second state polling. Collection, SSH
-and SQLite run outside the UI thread. `view_model.rs` defines availability,
-ID selection, scene entities and typed percent metrics. `scene.rs` caches uploaded
-meshes until fleet identity/geometry changes; camera, selection and state invalidate
-the color pass, geometry invalidates shadows. There is no continuous animation.
-The list alternative removes the shader widget. GPU-free startup is not yet qualified.
-Ingress drops are counted and shown; schema-1 history still only stores summaries.
+The V3 primary shell has Fleet (landing), Hosts, Metrics, Processes, Investigate,
+Events and Setup. A compact 64px rail can expand; Fleet uses a bounded visible row
+window, sort/filter and optional inspector. Host Monitor combines compute, individual
+GPUs, memory, network, filesystems, processes and diagnostics. The former 3D renderer
+is retained for focused regression tests, not the default home.
+
+`ui/workbench.rs` owns routing/chrome, `ui/instrument.rs` the dense data workspaces,
+`ui/setup.rs` host forms and settings commands, `profile.rs` typed transactional
+SQLite settings, `ui/chart.rs` receipt-time charts and inspection. `ui.rs` owns
+application state and reusable typed metric components. `view_model.rs` keeps
+availability/identity/metric contracts. There are no synthetic production readings.
+
+Settings import a legacy profile once without changing IDs or history. Changes are
+validated before a revision-checked transaction; concurrent windows cannot overwrite
+each other silently. Collection replacement runs off the UI event loop, stops and
+joins previous workers and reaps SSH children. Ingestion events carry stable node
+IDs, never display positions. Inventories have a 1 MiB serialized budget; the first
+engine has a conservative 32-stream concurrency budget (local takes priority).
+Additional enrolled hosts show a capacity state distinct from a network failure.
+That bound is not a benchmark claim for 32/500 concurrent streams; W2 needs a
+scheduler and resource qualification. Fleet rendering is tested with 500 fixtures.
+
+The desktop and collectors poll at one second without a decorative render loop.
+Full GPU-free startup and assistive-technology accessibility remain unqualified.
+Settings are in a separate versioned SQLite database; history remains the existing
+summary schema and 5-second persistence cadence. Collection stops with the desktop.
 
 See [W0 audit and target module boundaries](moonitor-w0-audit-and-plan.md).
 

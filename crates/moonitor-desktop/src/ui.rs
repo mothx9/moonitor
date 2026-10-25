@@ -1,7 +1,7 @@
 use crate::{
     config::Config,
     engine::{Engine, NodeState},
-    scene::{Camera, Scene},
+    scene::Camera,
     view_model::{FleetViewModel, Metric, NodeStatus},
 };
 use iced::{
@@ -36,6 +36,7 @@ const STRONG: Font = Font {
 pub struct DisplayOptions {
     pub size: iced::Size,
     pub dark: bool,
+    pub theme_explicit: bool,
     pub scene_visible: bool,
     pub section: Option<Section>,
 }
@@ -44,7 +45,8 @@ impl Default for DisplayOptions {
         Self {
             size: iced::Size::new(1380.0, 940.0),
             dark: false,
-            scene_visible: true,
+            theme_explicit: false,
+            scene_visible: false,
             section: None,
         }
     }
@@ -173,7 +175,6 @@ pub enum Message {
     Frame,
     Select(String),
     SwitchNode(String),
-    ToggleScene,
     Focus(bool),
     NextNode(i32),
     Tab(Tab),
@@ -182,10 +183,25 @@ pub enum Message {
     Filter(String),
     Sort(bool),
     Orbit(f32),
-    Zoom(f32),
-    ResetCamera,
     Window(window::Id, window::Event),
     Screenshot(window::Screenshot, PathBuf),
+    Preview(String),
+    FleetFilter(String),
+    FleetSort(instrument::FleetSort),
+    FleetScroll(f32),
+    Inspector,
+    Rail,
+    Density,
+    Pause,
+    NewHost,
+    EditHost(String),
+    HostField(setup::Field, String),
+    HostKind(crate::config::NodeKind),
+    SaveHost,
+    CancelHost,
+    RequestRemove(String),
+    RemoveHost(String),
+    EngineReady(std::sync::Arc<std::sync::Mutex<Option<Engine>>>),
 }
 pub struct App {
     _engine: Option<Engine>,
@@ -194,7 +210,6 @@ pub struct App {
     dropped_events: u64,
     pending_samples: Vec<Instant>,
     selected: Option<String>,
-    scene_visible: bool,
     dark: bool,
     tab: Tab,
     section: Section,
@@ -206,25 +221,48 @@ pub struct App {
     screenshot: Option<PathBuf>,
     exit_after: Option<f32>,
     window: Option<window::Id>,
+    profile: Option<crate::profile::Profile>,
+    preferences: crate::profile::Preferences,
+    data_dir: PathBuf,
+    form: Option<setup::HostForm>,
+    setup_error: Option<String>,
+    setup_notice: Option<String>,
+    remove_host: Option<String>,
+    applying: bool,
+    fleet_filter: String,
+    fleet_sort: instrument::FleetSort,
+    fleet_scroll: f32,
+    viewport: iced::Size,
+    paused: bool,
 }
 pub fn run(
-    config: Config,
     data_dir: PathBuf,
     selected: usize,
     tab: Tab,
     screenshot: Option<PathBuf>,
     exit_after: Option<f32>,
     display: DisplayOptions,
+    profile: crate::profile::Profile,
 ) -> anyhow::Result<()> {
+    let config = profile.config.clone();
+    let profile = std::cell::RefCell::new(Some(profile));
     iced::application(
         move || {
+            let profile = profile
+                .borrow_mut()
+                .take()
+                .expect("native application boot runs once");
+            let preferences = profile.preferences.clone();
             let engine = Engine::start(config.clone(), data_dir.join("history.sqlite"));
             let nodes = engine.state.lock().unwrap().nodes.clone();
             App {
                 _engine: Some(engine),
                 selected: nodes.get(selected).map(|n| n.config.id.clone()),
-                scene_visible: display.scene_visible,
-                dark: display.dark,
+                dark: if display.theme_explicit {
+                    display.dark
+                } else {
+                    preferences.dark
+                },
                 nodes,
                 storage_error: None,
                 dropped_events: 0,
@@ -243,6 +281,19 @@ pub fn run(
                 screenshot: screenshot.clone(),
                 exit_after,
                 window: None,
+                profile: Some(profile),
+                preferences,
+                data_dir: data_dir.clone(),
+                form: None,
+                setup_error: None,
+                setup_notice: None,
+                remove_host: None,
+                applying: false,
+                fleet_filter: String::new(),
+                fleet_sort: instrument::FleetSort::Name,
+                fleet_scroll: 0.0,
+                viewport: display.size,
+                paused: false,
             }
         },
         App::update,
@@ -302,6 +353,9 @@ impl App {
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::Tick => {
+                if self.paused && self.exit_after.is_none() && self.screenshot.is_none() {
+                    return Task::none();
+                }
                 if self._engine.is_some() {
                     self.view_time_ms = now_ms();
                 }
@@ -363,7 +417,11 @@ impl App {
                         .map(move |s| Message::Screenshot(s, path.clone()));
                 }
             }
-            Message::Window(id, window::Event::Opened { .. }) => self.window = Some(id),
+            Message::Window(id, window::Event::Opened { size, .. }) => {
+                self.window = Some(id);
+                self.viewport = size;
+            }
+            Message::Window(_, window::Event::Resized(size)) => self.viewport = size,
             Message::Window(_, _) => (),
             Message::Screenshot(s, path) => {
                 if let Err(e) = image::save_buffer(
@@ -380,9 +438,9 @@ impl App {
                 if self.nodes.iter().any(|n| n.config.id == id) {
                     self.selected = Some(id);
                     self.section = Section::Device;
+                    self.tab = Tab::Overview;
                 }
             }
-            Message::ToggleScene => self.scene_visible = !self.scene_visible,
             Message::Focus(reverse) => {
                 return if reverse {
                     widget::operation::focus_previous()
@@ -411,59 +469,83 @@ impl App {
                 self.tab = tab;
                 self.section = Section::Device;
             }
-            Message::Navigate(section) => self.section = section,
-            Message::Theme(dark) => self.dark = dark,
+            Message::Navigate(section) => {
+                self.section = section;
+                if matches!(section, Section::Overview | Section::Fleet) {
+                    self.fleet_scroll = 0.0;
+                    return widget::operation::scroll_to(
+                        "fleet-matrix",
+                        widget::operation::AbsoluteOffset { x: 0.0, y: 0.0 },
+                    );
+                }
+            }
+            Message::Theme(dark) => {
+                let mut preferences = self.preferences.clone();
+                preferences.dark = dark;
+                if self.save_preferences(preferences) {
+                    self.dark = dark;
+                }
+            }
             Message::Filter(s) => self.filter = s,
             Message::Sort(memory) => self.sort_memory = memory,
             Message::Orbit(dx) => self.camera.yaw += dx,
-            Message::Zoom(delta) => self.camera.zoom = (self.camera.zoom + delta).clamp(0.75, 1.6),
-            Message::ResetCamera => self.camera = Camera::default(),
+            Message::Preview(id) => {
+                if self.nodes.iter().any(|n| n.config.id == id) {
+                    self.selected = Some(id);
+                }
+            }
+            Message::FleetFilter(value) => {
+                self.fleet_filter = value.chars().take(128).collect();
+                self.fleet_scroll = 0.0;
+                return widget::operation::scroll_to(
+                    "fleet-matrix",
+                    widget::operation::AbsoluteOffset { x: 0.0, y: 0.0 },
+                );
+            }
+            Message::FleetSort(sort) => {
+                self.fleet_sort = sort;
+                self.fleet_scroll = 0.0;
+                return widget::operation::scroll_to(
+                    "fleet-matrix",
+                    widget::operation::AbsoluteOffset { x: 0.0, y: 0.0 },
+                );
+            }
+            Message::FleetScroll(offset) => self.fleet_scroll = offset,
+            Message::Inspector => {
+                let mut p = self.preferences.clone();
+                p.inspector = !p.inspector;
+                self.save_preferences(p);
+            }
+            Message::Rail => {
+                let mut p = self.preferences.clone();
+                p.expanded_rail = !p.expanded_rail;
+                self.save_preferences(p);
+            }
+            Message::Density => {
+                let mut p = self.preferences.clone();
+                p.comfortable = !p.comfortable;
+                self.save_preferences(p);
+                self.fleet_scroll = 0.0;
+            }
+            Message::Pause => self.paused = !self.paused,
+            Message::NewHost
+            | Message::EditHost(_)
+            | Message::HostField(_, _)
+            | Message::HostKind(_)
+            | Message::SaveHost
+            | Message::CancelHost
+            | Message::RequestRemove(_)
+            | Message::RemoveHost(_) => return self.setup_update(message),
+            Message::EngineReady(slot) => {
+                self._engine = slot.lock().unwrap().take();
+                self.applying = false;
+                self.setup_notice = Some("Configurazione applicata. Raccolta aggiornata.".into());
+            }
         }
         Task::none()
     }
     fn view(&self) -> Element<'_, Message> {
         self.workbench_view()
-    }
-    fn scene_list(&self) -> Element<'_, Message> {
-        let mut rows = Column::new().spacing(8);
-        for node in &self.nodes {
-            let (state, color) = status(node);
-            rows = rows.push(
-                button(
-                    row![
-                        text(&node.config.label).size(14).width(Fill),
-                        text(state).size(12).tone(color)
-                    ]
-                    .spacing(16),
-                )
-                .on_press(Message::Select(node.config.id.clone()))
-                .width(Fill)
-                .padding(10)
-                .style(|theme, state| {
-                    themed_button(
-                        theme,
-                        button::Style {
-                            background: Some(
-                                if matches!(state, button::Status::Hovered) {
-                                    BG
-                                } else {
-                                    PAPER
-                                }
-                                .into(),
-                            ),
-                            text_color: INK,
-                            border: Border {
-                                color: LINE,
-                                width: 0.7,
-                                radius: 6.0.into(),
-                            },
-                            ..Default::default()
-                        },
-                    )
-                }),
-            );
-        }
-        scrollable(rows).height(Fill).into()
     }
     fn node_heading<'a>(&self, n: &'a NodeState) -> Element<'a, Message> {
         let (state, color) = status(n);
@@ -1287,6 +1369,8 @@ impl canvas::Program<Message> for Icon {
 }
 
 mod chart;
+mod instrument;
+mod setup;
 mod workbench;
 use workbench::SECTIONS;
 pub use workbench::Section;

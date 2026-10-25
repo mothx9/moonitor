@@ -1,5 +1,7 @@
 # Moonlight e Deep Space
 
+> Historical revision. The [V3 contract](moonitor-v2/product-requirements.md) replaces the former layout and session-only preferences. Measurements below refer to that earlier build.
+
 23 ottobre 2026. Cambio di direzione visiva richiesto dall'utente: l'identità lunare
 del marchio sostituisce i temi verdi precedenti. Questa decisione aggiorna la
 proposta cromatica del blueprint; non cambia framework, roadmap o modello dati.

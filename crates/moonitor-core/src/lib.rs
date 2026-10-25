@@ -224,6 +224,39 @@ impl HostSnapshot {
         {
             return Err("Invalid CPU utilization".into());
         }
+        if self
+            .cpu_cores_percent
+            .iter()
+            .any(|v| !v.is_finite() || !(0.0..=100.0).contains(v))
+            || self
+                .processes
+                .iter()
+                .any(|p| !p.cpu_percent.is_finite() || p.cpu_percent < 0.0)
+            || self.networks.iter().any(|n| {
+                !n.received_bytes_per_second.is_finite()
+                    || n.received_bytes_per_second < 0.0
+                    || !n.transmitted_bytes_per_second.is_finite()
+                    || n.transmitted_bytes_per_second < 0.0
+            })
+            || self
+                .power
+                .iter()
+                .any(|p| p.watts.value().is_some_and(|v| !v.is_finite() || *v < 0.0))
+            || self.gpus.iter().any(|g| {
+                g.utilization_percent
+                    .value()
+                    .is_some_and(|v| !v.is_finite() || !(0.0..=100.0).contains(v))
+            })
+        {
+            return Err("Invalid component measurement".into());
+        }
+        if let (Some(total), Some(available)) = (
+            self.memory.total_bytes.value(),
+            self.memory.available_bytes.value(),
+        ) && (*total == 0 || available > total)
+        {
+            return Err("Invalid physical memory counters".into());
+        }
         Ok(())
     }
 }

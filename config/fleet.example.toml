@@ -1,38 +1,21 @@
-# SSH aliases use your existing ~/.ssh/config. No credentials are stored here.
+# Optional legacy import example. New installations use Setup; no TOML is required.
+# Documentation-only identities; replace destinations before import.
 [[nodes]]
-id = "macbook"
-visual_kind = "laptop"
-label = "MacBook Pro"
+id = "local-example"
+label = "This computer"
 kind = "local"
-note = "Apple Silicon / memoria unificata"
 
 [[nodes]]
-id = "exon"
-visual_kind = "tower"
-label = "Exon"
+id = "compute-example"
+label = "Compute node"
 kind = "ssh"
-ssh_alias = "exon-vpn"
-note = "Workstation / NVIDIA"
+ssh_alias = "compute.example"
+ssh_user = "observer"
+ssh_port = 22
+remote_agent = ".local/bin/moonitor-agent"
 
 [[nodes]]
-id = "spark"
-visual_kind = "compact"
-label = "DGX Spark"
-kind = "ssh"
-ssh_alias = "spark-vpn"
-note = "GB10 / memoria unificata"
-
-[[nodes]]
-id = "zima"
-visual_kind = "board"
-label = "Zima"
-kind = "ssh"
-ssh_alias = "zima-vpn"
-note = "Homelab node"
-
-[[nodes]]
-id = "iphone"
-visual_kind = "phone"
-label = "iPhone"
+id = "inventory-example"
+label = "Inventory device"
 kind = "unavailable"
-note = "Dispositivo censito. Telemetria iOS non collegata."
+note = "No agent connected; not counted as offline."

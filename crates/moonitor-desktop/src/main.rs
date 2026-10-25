@@ -3,6 +3,8 @@ mod engine;
 #[cfg(test)]
 mod fixtures;
 mod palette;
+mod profile;
+#[allow(dead_code)] // Retained renderer for focused regression; V3 home is table-first.
 mod scene;
 mod ui;
 mod view_model;
@@ -49,6 +51,7 @@ fn main() -> Result<()> {
                 display.size = iced::Size::new(w as f32, h as f32);
             }
             "--theme" => {
+                display.theme_explicit = true;
                 display.dark = match value()?.as_str() {
                     "light" => false,
                     "dark" => true,
@@ -80,39 +83,38 @@ fn main() -> Result<()> {
             _ => bail!("Unknown argument: {arg}"),
         }
     }
+    let data_dir = data_dir.unwrap_or_else(default_data_dir);
     if config_path.is_none() {
-        let installed = default_data_dir().join("fleet.toml");
+        let installed = data_dir.join("fleet.toml");
         config_path = installed.is_file().then_some(installed);
     }
-    let config = config::Config::load(config_path.as_deref())?;
+    std::fs::create_dir_all(&data_dir)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&data_dir, std::fs::Permissions::from_mode(0o700))?;
+    }
+    let profile =
+        profile::Profile::open(&data_dir.join("settings.sqlite"), config_path.as_deref())?;
+    let config = profile.config.clone();
     if let Some(id) = &selected_node
         && !config.nodes.iter().any(|n| &n.id == id)
     {
         bail!("Unknown node: {id}");
     }
     let selected_tab = ui::Tab::parse(&tab).context("Unknown tab")?;
-    let data_dir = data_dir.unwrap_or_else(default_data_dir);
-    let new_data_dir = !data_dir.exists();
-    std::fs::create_dir_all(&data_dir)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if new_data_dir {
-            std::fs::set_permissions(&data_dir, std::fs::Permissions::from_mode(0o700))?;
-        }
-    }
     let selected = selected_node
         .as_ref()
         .and_then(|id| config.nodes.iter().position(|n| &n.id == id))
         .unwrap_or(0);
     ui::run(
-        config,
         data_dir,
         selected,
         selected_tab,
         screenshot,
         exit_after,
         display,
+        profile,
     )
 }
 

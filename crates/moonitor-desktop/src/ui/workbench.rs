@@ -1,12 +1,13 @@
-//! W1 shell: operational questions, shared node state, no synthetic production data.
+//! V3 native instrument shell. The HTML concept is a design reference only.
 use super::*;
 use iced::widget::column;
 use iced::widget::pick_list;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Section {
     Overview,
     Fleet,
+    Metrics,
+    Processes,
     Workloads,
     Energy,
     Events,
@@ -17,52 +18,52 @@ pub enum Section {
 pub(super) const SECTIONS: [Section; 7] = [
     Section::Overview,
     Section::Fleet,
-    Section::Workloads,
-    Section::Energy,
-    Section::Events,
+    Section::Metrics,
+    Section::Processes,
     Section::Explore,
+    Section::Events,
     Section::Settings,
 ];
 impl Section {
     pub fn parse(value: &str) -> Option<Self> {
-        SECTIONS.into_iter().chain([Self::Device]).find(|s| {
-            s.label().eq_ignore_ascii_case(value) || (*s == Self::Device && value == "device")
+        Some(match value.to_ascii_lowercase().as_str() {
+            "overview" | "fleet" => Self::Overview,
+            "hosts" => Self::Fleet,
+            "metrics" => Self::Metrics,
+            "processes" => Self::Processes,
+            "workloads" => Self::Workloads,
+            "energy" => Self::Energy,
+            "events" => Self::Events,
+            "investigate" | "explore" => Self::Explore,
+            "setup" | "settings" => Self::Settings,
+            "host" | "device" => Self::Device,
+            _ => return None,
         })
     }
     pub(super) fn label(self) -> &'static str {
         match self {
-            Self::Overview => "Overview",
-            Self::Fleet => "Fleet",
-            Self::Workloads => "Workloads",
-            Self::Energy => "Energy",
+            Self::Overview => "Fleet",
+            Self::Fleet => "Hosts",
+            Self::Metrics => "Metrics",
+            Self::Processes => "Processes",
+            Self::Workloads => "AI runtimes",
+            Self::Energy => "Power",
             Self::Events => "Events",
-            Self::Explore => "Explore",
-            Self::Settings => "Settings",
-            Self::Device => "Dispositivo",
+            Self::Explore => "Investigate",
+            Self::Settings => "Setup",
+            Self::Device => "Host monitor",
         }
     }
     fn icon(self) -> &'static str {
         match self {
             Self::Overview => "overview",
-            Self::Fleet => "network",
-            Self::Workloads => "ai",
+            Self::Fleet | Self::Device => "network",
+            Self::Metrics | Self::Workloads => "ai",
+            Self::Processes => "process",
             Self::Energy => "energy",
             Self::Events => "events",
             Self::Explore => "history",
             Self::Settings => "settings",
-            Self::Device => "overview",
-        }
-    }
-    fn subtitle(self) -> &'static str {
-        match self {
-            Self::Overview => "Il laboratorio, adesso.",
-            Self::Fleet => "Nodi, capacità e disponibilità.",
-            Self::Workloads => "Runtime e modelli osservati nel laboratorio.",
-            Self::Energy => "Potenza misurata, con confini espliciti.",
-            Self::Events => "Cambiamenti e qualità delle sorgenti.",
-            Self::Explore => "Andamento recente delle risorse.",
-            Self::Settings => "Sorgenti e preferenze di visualizzazione.",
-            Self::Device => "Telemetria e risorse del nodo selezionato.",
         }
     }
 }
@@ -73,16 +74,15 @@ struct NodeChoice {
 }
 impl std::fmt::Display for NodeChoice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.label)
+        f.write_str(&self.label)
     }
 }
 impl App {
     pub(super) fn workbench_view(&self) -> Element<'_, Message> {
-        let fleet = FleetViewModel::new(&self.nodes, self.selected.as_deref(), Instant::now());
         let node = self
             .nodes
             .iter()
-            .find(|n| Some(n.config.id.as_str()) == fleet.selected_id.as_deref());
+            .find(|n| Some(n.config.id.as_str()) == self.selected.as_deref());
         let choices = self
             .nodes
             .iter()
@@ -93,70 +93,94 @@ impl App {
             .collect::<Vec<_>>();
         let selected = choices
             .iter()
-            .find(|n| Some(n.id.as_str()) == fleet.selected_id.as_deref())
+            .find(|n| Some(n.id.as_str()) == self.selected.as_deref())
             .cloned();
         let switcher = pick_list(choices, selected, |n| Message::SwitchNode(n.id))
-            .placeholder("Seleziona nodo")
+            .placeholder("Seleziona host")
             .text_size(12)
-            .padding([9, 12])
-            .width(190)
-            .style(|theme, state| {
-                let mut style = pick_list::default(theme, state);
-                style.background = tone(PAPER, theme).into();
-                style.border.color = tone(LINE, theme);
-                style.border.radius = 7.0.into();
-                style
-            });
+            .padding([7, 10])
+            .width(180);
         let top = row![
-            column![
-                text(self.section.label()).size(26).font(STRONG),
-                text(self.section.subtitle()).size(12).tone(MUTED)
-            ]
-            .spacing(5),
+            text("moonitor").size(18).font(STRONG),
+            text("/").size(14).tone(MUTED),
+            text(self.section.label()).size(12).font(MEDIUM),
             Space::new().width(Fill),
-            pill("LIVE · 1 s", HEALTHY),
-            switcher
+            text(if self.paused {
+                "PAUSA · raccolta attiva"
+            } else {
+                "LIVE · aggiornamento 1 s"
+            })
+            .size(10)
+            .tone(if self.paused { AMBER } else { HEALTHY }),
+            switcher,
+            small_button(
+                if self.paused { "Riprendi" } else { "Pausa" },
+                Message::Pause
+            )
         ]
         .spacing(16)
         .align_y(alignment::Vertical::Center);
         let content = match self.section {
-            Section::Overview => self.overview(&fleet, node),
-            Section::Fleet => self.fleet(&fleet),
+            Section::Overview | Section::Fleet => self.fleet_monitor(),
+            Section::Device if self.tab == Tab::Overview => node
+                .map(|n| self.host_monitor(n))
+                .unwrap_or_else(empty_fleet),
+            Section::Device => node.map(|n| self.device(n)).unwrap_or_else(empty_fleet),
+            Section::Settings => self.setup_view(),
+            Section::Metrics => self.metrics_catalog(node),
+            Section::Processes => node
+                .map(|n| self.device_processes(n))
+                .unwrap_or_else(empty_fleet),
+            Section::Explore => node.map(|n| self.explore(n)).unwrap_or_else(empty_fleet),
+            Section::Events => self.events(),
             Section::Workloads => self.workloads(),
             Section::Energy => self.energy(),
-            Section::Events => self.events(),
-            Section::Explore => node.map(|n| self.explore(n)).unwrap_or_else(empty_fleet),
-            Section::Settings => self.settings(),
-            Section::Device => node.map(|n| self.device(n)).unwrap_or_else(empty_fleet),
         };
-        let mut body = column![content].spacing(18);
-        if let Some(error) = &self.storage_error {
-            body = body.push(notice(&format!("Storico: {error}")));
+        let fixed = matches!(self.section, Section::Overview | Section::Fleet)
+            || (self.section == Section::Device && self.tab == Tab::Overview);
+        let content: Element<'_, Message> = if fixed {
+            content
+        } else {
+            scrollable(content).height(Fill).into()
+        };
+        let mut body = column![content].spacing(8);
+        if self.section != Section::Settings
+            && let Some(error) = &self.setup_error
+        {
+            body = body.push(notice(error));
+        }
+        if let Some(e) = &self.storage_error {
+            body = body.push(notice(&format!("Archivio: {e}")));
         }
         if self.dropped_events > 0 {
             body = body.push(notice(&format!(
-                "Acquisizione: {} aggiornamenti scartati per coda piena",
+                "Coda: {} aggiornamenti scartati",
                 self.dropped_events
             )));
         }
         container(row![
-            self.workbench_sidebar(),
+            self.rail(),
             column![
-                container(top).padding([24, 26]),
-                scrollable(
-                    container(body)
-                        .padding(iced::Padding {
-                            top: 0.0,
-                            right: 26.0,
-                            bottom: 24.0,
-                            left: 26.0
-                        })
-                        .width(Fill)
-                )
-                .height(Fill)
+                container(top)
+                    .padding([9, 18])
+                    .height(52)
+                    .width(Fill)
+                    .style(|theme| themed_panel(
+                        theme,
+                        container::Style {
+                            background: Some(PAPER.into()),
+                            border: Border {
+                                color: LINE,
+                                width: 1.0,
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        }
+                    )),
+                container(body).padding(16).width(Fill).height(Fill)
             ]
-            .height(Fill)
             .width(Fill)
+            .height(Fill)
         ])
         .width(Fill)
         .height(Fill)
@@ -172,34 +196,29 @@ impl App {
         })
         .into()
     }
-    fn workbench_sidebar(&self) -> Element<'_, Message> {
-        let brand = row![
-            brand_icon(),
-            text("moonitor").size(22).font(STRONG).color(Color::WHITE)
-        ]
-        .spacing(9)
-        .align_y(alignment::Vertical::Center);
+    fn rail(&self) -> Element<'_, Message> {
+        let expanded = self.preferences.expanded_rail;
         let mut nav = column![
-            brand,
-            text("COMPUTE OBSERVATORY").size(9).color(NAV_MUTED),
-            Space::new().height(26)
+            container(brand_icon()).padding([4, 3]),
+            Space::new().height(14)
         ]
-        .spacing(14);
+        .spacing(8);
         for section in SECTIONS {
             let selected = self.section == section
                 || (self.section == Section::Device && section == Section::Fleet);
-            let color = if selected { ACCENT_SOFT } else { NAV_TEXT };
-            nav = nav.push(
-                button(
-                    row![
-                        canvas(Icon(section.icon(), color)).width(18).height(18),
-                        text(section.label()).size(13).font(MEDIUM)
-                    ]
+            let color = if selected { ACCENT_SOFT } else { NAV_MUTED };
+            let icon = canvas(Icon(section.icon(), color)).width(20).height(20);
+            let inner: Element<'_, Message> = if expanded {
+                row![icon, text(section.label()).size(12)]
                     .spacing(12)
-                    .align_y(alignment::Vertical::Center),
-                )
+                    .align_y(alignment::Vertical::Center)
+                    .into()
+            } else {
+                icon.into()
+            };
+            let action = button(inner)
+                .padding(11)
                 .width(Fill)
-                .padding([12, 13])
                 .on_press(Message::Navigate(section))
                 .style(move |_, state| button::Style {
                     background: Some(
@@ -208,355 +227,150 @@ impl App {
                         } else if matches!(state, button::Status::Hovered) {
                             NAV_HOVER
                         } else {
-                            Color::TRANSPARENT
+                            NAV
                         }
                         .into(),
                     ),
                     text_color: color,
                     border: Border {
-                        radius: 9.into(),
+                        radius: 8.into(),
                         ..Default::default()
                     },
                     ..Default::default()
-                }),
-            );
+                });
+            nav = nav.push(tooltip(
+                action,
+                container(text(section.label()).size(12))
+                    .padding(8)
+                    .style(panel),
+                tooltip::Position::Right,
+            ));
         }
-        let monitored = self
-            .nodes
-            .iter()
-            .filter(|n| !matches!(n.config.kind, crate::config::NodeKind::Unavailable))
-            .count();
-        let footer = column![
-            text("RACCOLTA LOCALE").size(9).color(NAV_MUTED),
-            text(format!("{monitored} nodi strumentati"))
-                .size(12)
-                .color(NAV_TEXT),
-            text("SSH · archivio sul dispositivo")
-                .size(10)
-                .color(NAV_MUTED),
-            text("Moonitor / Native workbench").size(9).color(NAV_MUTED)
-        ]
-        .spacing(9);
-        container(column![nav, Space::new().height(Fill), footer].spacing(18))
-            .padding([28, 20])
-            .width(220)
-            .height(Fill)
-            .style(|_| container::Style {
-                background: Some(NAV.into()),
-                ..Default::default()
-            })
-            .into()
-    }
-    fn overview<'a>(
-        &'a self,
-        fleet: &FleetViewModel,
-        node: Option<&'a NodeState>,
-    ) -> Element<'a, Message> {
-        let observed_runtime = self
-            .nodes
-            .iter()
-            .filter(|n| n.live())
-            .filter_map(|n| n.sample.as_ref())
-            .filter(|s| s.ollama.models.value().is_some())
-            .count();
-        let models = self
-            .nodes
-            .iter()
-            .filter(|n| n.live())
-            .filter_map(|n| n.sample.as_ref())
-            .filter_map(|s| s.ollama.models.value())
-            .map(Vec::len)
-            .sum::<usize>();
-        let gpu_values = self
-            .nodes
-            .iter()
-            .filter(|n| n.live())
-            .filter_map(|n| n.sample.as_ref())
-            .flat_map(|s| s.gpus.iter())
-            .filter_map(|g| g.utilization_percent.value().copied())
-            .collect::<Vec<_>>();
-        let power = self.measured_power();
-        let stats = row![
-            stat(
-                "NODI MONITORATI",
-                &format!("{} / {}", fleet.online, fleet.monitored),
-                &format!(
-                    "{} censiti · {} non strumentati",
-                    fleet.devices.len(),
-                    fleet.devices.len() - fleet.monitored
+        container(
+            column![
+                nav,
+                Space::new().height(Fill),
+                tooltip(
+                    rail_control(
+                        text(if expanded { "Comprimi ←" } else { "☰" }).size(12),
+                        Message::Rail
+                    ),
+                    "Espandi / comprimi navigazione",
+                    tooltip::Position::Right
+                ),
+                tooltip(
+                    rail_control(
+                        canvas(Icon("network", NAV_TEXT)).width(20).height(20),
+                        Message::NewHost
+                    ),
+                    "Aggiungi host",
+                    tooltip::Position::Right
                 )
-            ),
-            stat(
-                "MODELLI RESIDENTI",
-                &if observed_runtime > 0 {
-                    models.to_string()
-                } else {
-                    "N/D".into()
-                },
-                &format!("Ollama osservato su {observed_runtime} nodi")
-            ),
-            stat(
-                "GPU · MASSIMO OSSERVATO",
-                &pct(gpu_values.iter().copied().reduce(f64::max)),
-                &format!("{} acceleratori con misura", gpu_values.len())
-            ),
-            stat(
-                "POTENZA GPU MISURATA",
-                &watts(power.0),
-                &format!("{} nodi con lettura · board", power.1)
-            )
-        ]
-        .spacing(12);
-        let timeline = if let Some(n) = node {
-            self.resource_timeline(n)
-        } else {
-            empty_fleet()
-        };
-        let middle = row![
-            container(timeline).width(Length::FillPortion(3)),
-            container(self.lab_map(fleet, 220.0)).width(Length::FillPortion(2))
-        ]
-        .spacing(16);
-        column![stats, middle, self.model_table(true), self.source_summary()]
-            .spacing(18)
-            .into()
-    }
-    fn resource_timeline<'a>(&self, n: &'a NodeState) -> Element<'a, Message> {
-        let s = n.sample.as_ref();
-        let title = row![
-            column![
-                text("Resource timeline").size(16).font(STRONG),
-                text(format!("{} · ultimi 5 minuti", n.config.label))
-                    .size(11)
-                    .tone(MUTED)
             ]
-            .spacing(4),
-            Space::new().width(Fill),
-            small_button("Apri nodo →", Message::Select(n.config.id.clone()))
-        ]
-        .align_y(alignment::Vertical::Center);
-        let metrics = row![
-            metric(
-                Metric::percent("CPU", s.map(|s| &s.cpu_utilization_percent), !n.live()),
-                chart::SERIES[0]
-            ),
-            metric(
-                s.map(|s| Metric::memory(s, !n.live()))
-                    .unwrap_or_else(|| Metric::percent("RAM", None, false)),
-                chart::SERIES[1]
-            ),
-            metric(
-                s.map(|s| Metric::gpu(s, !n.live()))
-                    .unwrap_or_else(|| Metric::percent("GPU", None, false)),
-                chart::SERIES[2]
-            )
-        ]
-        .spacing(16);
-        card(
-            column![
-                title,
-                metrics,
-                canvas(chart::ResourceChart::new(&n.history, self.view_time_ms))
-                    .width(Fill)
-                    .height(135),
-                text("Utilizzo % · passa sul grafico per ispezionare")
-                    .size(10)
-                    .tone(MUTED)
-            ]
-            .spacing(12),
+            .spacing(8),
         )
-        .height(320)
+        .padding([12, 8])
+        .width(if expanded { 180 } else { 64 })
+        .height(Fill)
+        .style(|_| container::Style {
+            background: Some(NAV.into()),
+            ..Default::default()
+        })
         .into()
     }
-    fn lab_map<'a>(&'a self, fleet: &FleetViewModel, height: f32) -> Element<'a, Message> {
-        let scene = Scene {
-            selected: fleet.selected_id.clone(),
-            devices: fleet.devices.clone(),
-            camera: self.camera,
-            dark: self.dark,
-        };
-        let content: Element<'a, Message> = if fleet.devices.is_empty() {
-            empty_fleet()
-        } else if self.scene_visible {
-            widget::stack![
-                widget::shader(scene.clone()).width(Fill).height(height),
-                canvas(scene).width(Fill).height(height)
-            ]
-            .into()
-        } else {
-            container(self.scene_list()).height(height).into()
-        };
-        card(
-            column![
+    fn device<'a>(&'a self, n: &'a NodeState) -> Element<'a, Message> {
+        let tabs = Row::with_children(
+            TABS.iter()
+                .map(|tab| small_button(tab.label(), Message::Tab(*tab))),
+        )
+        .spacing(4);
+        column![
+            row![
+                text(&n.config.label).size(22).font(STRONG),
+                Space::new().width(Fill),
+                small_button("← Fleet", Message::Navigate(Section::Overview))
+            ],
+            tabs,
+            self.node_heading(n),
+            self.details(n)
+        ]
+        .spacing(12)
+        .into()
+    }
+    fn device_processes<'a>(&'a self, n: &'a NodeState) -> Element<'a, Message> {
+        column![
+            text(format!("Processes / {}", n.config.label))
+                .size(22)
+                .font(STRONG),
+            n.sample
+                .as_ref()
+                .map(|s| self.processes(s, false))
+                .unwrap_or_else(|| self.details(n))
+        ]
+        .spacing(12)
+        .into()
+    }
+    fn metrics_catalog<'a>(&'a self, node: Option<&'a NodeState>) -> Element<'a, Message> {
+        let mut c=column![text("Metric catalog").size(23).font(STRONG),text("Capacità delle sorgenti del nodo selezionato. Apri una famiglia per ispezionare valori e provenance.").size(12).tone(MUTED)].spacing(12);
+        for (title, detail, tab) in [
+            (
+                "CPU / cores",
+                "Utilizzo aggregato e per core logico",
+                Tab::Compute,
+            ),
+            (
+                "Memory / pressure",
+                "RAM fisica, swap e pressione dove misurata",
+                Tab::History,
+            ),
+            (
+                "GPU / accelerators",
+                "Dispositivi separati, memoria, clock e limiti di fonte",
+                Tab::Ai,
+            ),
+            (
+                "Network / interfaces",
+                "RX/TX per interfaccia, senza somme di bridge e tunnel",
+                Tab::Network,
+            ),
+            (
+                "Storage / filesystems",
+                "Capacità per mount; I/O e SMART non ancora strumentati",
+                Tab::Disks,
+            ),
+            (
+                "Sensors",
+                "Temperature, batteria e PSI dove disponibili",
+                Tab::Sensors,
+            ),
+        ] {
+            c = c.push(instrument::panel(
+                title,
                 row![
-                    text("Lab Map").size(16).font(STRONG),
-                    Space::new().width(Fill),
-                    small_button(
-                        if self.scene_visible { "Elenco" } else { "3D" },
-                        Message::ToggleScene
-                    ),
-                    small_button("−", Message::Zoom(-0.1)),
-                    small_button("+", Message::Zoom(0.1)),
-                    small_button("↺", Message::ResetCamera)
+                    text(detail).size(12).tone(MUTED).width(Fill),
+                    small_button("Ispeziona →", Message::Tab(tab))
                 ]
-                .align_y(alignment::Vertical::Center),
-                content,
-                text("Seleziona un nodo per aprire il dettaglio")
-                    .size(10)
-                    .tone(MUTED)
+                .spacing(12),
+            ));
+        }
+        if node.is_none() {
+            c = c.push(empty_fleet());
+        }
+        c.push(
+            row![
+                small_button("AI runtimes", Message::Navigate(Section::Workloads)),
+                small_button("Potenza misurata", Message::Navigate(Section::Energy))
             ]
             .spacing(10),
         )
-        .height(height + 100.0)
         .into()
-    }
-    fn fleet<'a>(&'a self, fleet: &FleetViewModel) -> Element<'a, Message> {
-        let header = row![
-            text(format!("{} nodi censiti", fleet.devices.len()))
-                .size(17)
-                .font(STRONG),
-            Space::new().width(Fill),
-            text(format!(
-                "{} online / {} monitorati",
-                fleet.online, fleet.monitored
-            ))
-            .size(12)
-            .tone(MUTED)
-        ];
-        let mut rows = column![
-            header,
-            table_row(["DISPOSITIVO", "STATO", "CPU / RAM", "GPU"], true)
-        ]
-        .spacing(10);
-        for n in &self.nodes {
-            let cpu = n
-                .sample
-                .as_ref()
-                .and_then(|s| s.cpu_utilization_percent.value().copied());
-            let memory = n
-                .sample
-                .as_ref()
-                .and_then(|s| moonitor_store::memory_percent(s));
-            let gpu = n
-                .sample
-                .as_ref()
-                .and_then(|s| Metric::gpu(s, !n.live()).value);
-            rows = rows.push(
-                button(
-                    column![
-                        table_row(
-                            [
-                                &n.config.label,
-                                status(n).0,
-                                &format!("{} / {}", pct(cpu), pct(memory)),
-                                &pct(gpu)
-                            ],
-                            false
-                        ),
-                        text(
-                            n.sample
-                                .as_ref()
-                                .map(|s| format!("{} · {}", s.cpu_name, s.os))
-                                .unwrap_or_else(|| n.config.note.clone())
-                        )
-                        .size(11)
-                        .tone(MUTED)
-                    ]
-                    .spacing(3),
-                )
-                .width(Fill)
-                .padding(10)
-                .on_press(Message::Select(n.config.id.clone()))
-                .style(|theme, state| {
-                    themed_button(
-                        theme,
-                        button::Style {
-                            background: Some(
-                                if matches!(state, button::Status::Hovered) {
-                                    BG
-                                } else {
-                                    PAPER
-                                }
-                                .into(),
-                            ),
-                            text_color: INK,
-                            border: Border {
-                                color: LINE,
-                                width: 0.7,
-                                radius: 6.0.into(),
-                            },
-                            ..Default::default()
-                        },
-                    )
-                }),
-            );
-        }
-        column![card(rows), self.lab_map(fleet, 300.0)]
-            .spacing(18)
-            .into()
-    }
-    fn device<'a>(&'a self, n: &'a NodeState) -> Element<'a, Message> {
-        let tabs = Row::with_children(TABS.iter().map(|tab| {
-            button(text(tab.label()).size(12))
-                .on_press(Message::Tab(*tab))
-                .padding([8, 12])
-                .style(move |theme, state| {
-                    themed_button(
-                        theme,
-                        button::Style {
-                            background: Some(
-                                if self.tab == *tab {
-                                    SELECTED
-                                } else if matches!(state, button::Status::Hovered) {
-                                    LINE
-                                } else {
-                                    Color::TRANSPARENT
-                                }
-                                .into(),
-                            ),
-                            text_color: if self.tab == *tab { ACCENT } else { MUTED },
-                            border: Border {
-                                radius: 7.0.into(),
-                                ..Default::default()
-                            },
-                            ..Default::default()
-                        },
-                    )
-                })
-                .into()
-        }))
-        .spacing(6);
-        let mut body = column![self.node_heading(n), tabs].spacing(20);
-        if self.tab == Tab::Overview && n.sample.is_some() {
-            let s = n.sample.as_ref();
-            body = body.push(
-                row![
-                    card(metric(
-                        Metric::percent("CPU", s.map(|s| &s.cpu_utilization_percent), !n.live()),
-                        CPU
-                    )),
-                    card(metric(
-                        s.map(|s| Metric::memory(s, !n.live()))
-                            .unwrap_or_else(|| Metric::percent("RAM", None, false)),
-                        MEMORY
-                    )),
-                    card(metric(
-                        s.map(|s| Metric::gpu(s, !n.live()))
-                            .unwrap_or_else(|| Metric::percent("GPU", None, false)),
-                        GPU
-                    ))
-                ]
-                .spacing(12),
-            );
-        }
-        body.push(self.details(n)).into()
     }
     fn model_table(&self, compact: bool) -> Element<'_, Message> {
         let mut rows = column![
             row![
                 text("Modelli osservati").size(16).font(STRONG),
                 Space::new().width(Fill),
-                small_button("Workloads →", Message::Navigate(Section::Workloads))
+                small_button("Metriche →", Message::Navigate(Section::Metrics))
             ]
             .align_y(alignment::Vertical::Center),
             table_row(["MODELLO", "NODO", "RUNTIME", "MEMORIA MODELLO"], true)
@@ -699,116 +513,93 @@ impl App {
         column![card(events),card(column![text("Timeline eventi non disponibile").size(16).font(STRONG),text("L'archivio corrente conserva riepiloghi delle metriche. Non contiene ancora eventi storici di connessione o esecuzione dei workload.").size(13).tone(MUTED),small_button("Controlla la flotta →",Message::Navigate(Section::Fleet))].spacing(12)),self.source_summary()].spacing(18).into()
     }
     fn explore<'a>(&self, n: &'a NodeState) -> Element<'a, Message> {
-        card(
-            column![
-                text(format!("{} · storico recente", n.config.label))
-                    .size(18)
-                    .font(STRONG),
-                text("Ultimi 5 minuti · dati ricevuti · campioni persistiti ogni 5 s")
-                    .size(12)
-                    .tone(MUTED),
-                plot("CPU", &n.history, self.view_time_ms, 0, CPU),
-                plot("RAM", &n.history, self.view_time_ms, 1, MEMORY),
-                plot(
-                    "GPU · massimo disponibile",
-                    &n.history,
-                    self.view_time_ms,
-                    2,
-                    GPU
-                ),
-                text("0–100% · le interruzioni delle misure restano visibili come lacune.")
-                    .size(11)
-                    .tone(MUTED)
-            ]
-            .spacing(20),
-        )
-        .into()
+        let mut raw = column![table_row(
+            ["RICEVUTO UTC", "CPU HOST", "RAM", "GPU MAX"],
+            true
+        )]
+        .spacing(4);
+        for point in n
+            .history
+            .iter()
+            .rev()
+            .filter(|p| p.received_at_ms <= self.view_time_ms)
+            .take(10)
+        {
+            let seconds = point.received_at_ms / 1000;
+            raw = raw.push(table_row(
+                [
+                    &format!(
+                        "{:02}:{:02}:{:02}.{:03}",
+                        seconds / 3600 % 24,
+                        seconds / 60 % 60,
+                        seconds % 60,
+                        point.received_at_ms % 1000
+                    ),
+                    &pct(point.cpu_percent),
+                    &pct(point.memory_percent),
+                    &pct(point.gpu_percent),
+                ],
+                false,
+            ));
+        }
+        column![
+            text(format!("Investigate / {}",n.config.label)).size(22).font(STRONG),
+            text("Ultimi 5 minuti ricevuti · CPU / RAM / GPU massimo disponibile · 0–100%").size(12).tone(MUTED),
+            instrument::panel("RESOURCE HISTORY / cursore e campioni sincronizzati",column![
+                canvas(chart::ResourceChart::new(&n.history,self.view_time_ms)).width(Fill).height(260),
+                text("CPU pervinca · RAM ametista · GPU azzurro. Passa sul grafico per timestamp e valori; i gap non vengono collegati.").size(11).tone(MUTED),
+                text("Serie in memoria ~1 s; storico SQLite in riepiloghi di 5 s. Confronto multi-host, zoom e range lunghi richiedono il prossimo motore delle serie.").size(10).tone(MUTED),
+            ].spacing(10)),
+            instrument::panel("RAW RECEIPT SAMPLES / ultime 10 osservazioni · timestamp di ricezione, non clock sorgente",raw),
+        ].spacing(12).into()
     }
-    fn settings(&self) -> Element<'_, Message> {
-        let themes = row![
-            theme_choice("Moonlight", "Luce lunare · chiaro", false, self.dark),
-            theme_choice("Deep Space", "Cielo notturno · scuro", true, self.dark),
-        ]
-        .spacing(12);
-        column![
-            card(column![
-                text("Aspetto · sessione corrente").size(18).font(STRONG),
-                themes,
-                small_button(if self.scene_visible { "Disattiva 3D" } else { "Attiva 3D" }, Message::ToggleScene),
-                text("Il rendering 3D si aggiorna su dati e interazioni. Nessuna animazione continua.").size(12).tone(MUTED),
-            ].spacing(16)),
-            card(column![
-                text("Collegamento delle sorgenti").size(18).font(STRONG),
-                text("I nodi e gli alias SSH sono configurati in fleet.toml. Le credenziali restano nella configurazione SSH del sistema. Le modifiche alla flotta richiedono il riavvio dell'app.").size(13).tone(MUTED),
-                text("Archivio locale SQLite · riepiloghi ogni 5 s · conservazione 7 giorni. La raccolta si ferma chiudendo il desktop.").size(13).tone(MUTED),
-                text("Tastiera: Cmd/Ctrl+1…7 navigazione · Alt+←/→ nodo · Tab e Shift+Tab focus.").size(12).tone(MUTED),
-            ].spacing(14)),
-            self.source_summary(),
-        ].spacing(18).into()
-    }
-}
-fn theme_choice(
-    name: &'static str,
-    description: &'static str,
-    dark: bool,
-    current: bool,
-) -> Element<'static, Message> {
-    let selected = dark == current;
-    button(
-        column![
-            row![
-                text(name).size(15).font(STRONG),
-                Space::new().width(Fill),
-                text(if selected { "Attivo" } else { "Seleziona" })
-                    .size(11)
-                    .tone(if selected { ACCENT } else { MUTED }),
-            ]
-            .spacing(12)
-            .align_y(alignment::Vertical::Center),
-            text(description).size(12).tone(MUTED),
-        ]
-        .spacing(8),
-    )
-    .padding(16)
-    .width(Fill)
-    .on_press(Message::Theme(dark))
-    .style(move |theme, status| {
-        themed_button(
-            theme,
-            button::Style {
-                background: Some(
-                    if selected {
-                        SELECTED
-                    } else if matches!(status, button::Status::Hovered) {
-                        HOVER
-                    } else {
-                        PAPER
-                    }
-                    .into(),
-                ),
-                text_color: INK,
-                border: Border {
-                    color: if selected { ACCENT } else { LINE },
-                    width: 1.0,
-                    radius: 9.0.into(),
-                },
-                ..Default::default()
-            },
-        )
-    })
-    .into()
-}
-fn stat<'a>(label: &str, value: &str, detail: &str) -> Element<'a, Message> {
-    card(
-        column![
-            text(label.to_owned()).size(9).font(MEDIUM).tone(MUTED),
-            text(value.to_owned()).size(28).font(STRONG),
-            text(detail.to_owned()).size(10).tone(MUTED)
-        ]
-        .spacing(8),
-    )
-    .into()
 }
 fn empty_fleet<'a>() -> Element<'a, Message> {
-    card(column![text("Nessun dispositivo configurato").size(18).font(STRONG),text("Aggiungi un nodo local o ssh in fleet.toml per iniziare la raccolta. Puoi censire dispositivi senza agente come unavailable.").size(13).tone(MUTED)].spacing(12)).into()
+    instrument::panel(
+        "NESSUN HOST",
+        column![
+            text("Aggiungi questo computer o un host remoto per iniziare.").size(14),
+            small_button("+ Aggiungi host", Message::NewHost)
+        ]
+        .spacing(12),
+    )
+    .into()
+}
+
+fn stat<'a>(label: &str, value: &str, detail: &str) -> Element<'a, Message> {
+    instrument::panel(
+        label,
+        column![
+            text(value.to_owned()).size(22).font(STRONG),
+            text(detail.to_owned()).size(11).tone(MUTED)
+        ]
+        .spacing(8),
+    )
+    .into()
+}
+
+fn rail_control<'a>(
+    element: impl Into<Element<'a, Message>>,
+    message: Message,
+) -> widget::Button<'a, Message> {
+    button(element)
+        .on_press(message)
+        .padding(11)
+        .width(Fill)
+        .style(|_, state| button::Style {
+            background: Some(
+                if matches!(state, button::Status::Hovered) {
+                    NAV_HOVER
+                } else {
+                    NAV
+                }
+                .into(),
+            ),
+            text_color: NAV_TEXT,
+            border: Border {
+                radius: 8.into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
 }

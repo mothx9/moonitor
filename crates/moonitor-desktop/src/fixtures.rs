@@ -77,6 +77,7 @@ pub fn fleet(count: usize) -> Vec<NodeState> {
         .map(|i| {
             let id = format!("qa-{i}");
             NodeState {
+                capacity_limited: false,
                 config: NodeConfig {
                     id: id.clone(),
                     label: format!("QA device {i}"),
@@ -93,6 +94,8 @@ pub fn fleet(count: usize) -> Vec<NodeState> {
                         VisualKind::Phone,
                     ][i % 5],
                     ssh_alias: Some("fixture-only".into()),
+                    ssh_user: None,
+                    ssh_port: None,
                     remote_agent: None,
                     note: "DATI SINTETICI · SOLO TEST".into(),
                 },

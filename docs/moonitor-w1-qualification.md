@@ -1,5 +1,7 @@
 # W1 — redesign nativo e identità dell'app
 
+> Historical revision. The [V3 contract](moonitor-v2/product-requirements.md) replaces the former layout and session-only preferences. Measurements below refer to that earlier build.
+
 23 ottobre 2026. Segue la [specifica W1](moonitor-w1-interface-design.md) e il
 [report W0](moonitor-w0-qualification.md). L'avvio del redesign è autorizzato dalla
 correzione esplicita dell'utente dopo la W0; non implica il superamento automatico
@@ -73,7 +75,7 @@ nomi QA espliciti, stati misti e lacune nelle serie; non sono una modalità del 
   non solo presenza del testo nel tree. Test di regressione su gap/assenza/clock inverso.
 - macOS: finestra reale ispezionata in entrambi i temi, letture dei cinque nodi,
   cursore del grafico, Fleet, dettaglio, Workloads e scorciatoie Cmd+1…7.
-- Linux/Exon: renderer headless wgpu/NVIDIA; lavoro confinato a due core e 4 GiB,
+- Linux/GPU workstation: renderer headless wgpu/NVIDIA; lavoro confinato a due core e 4 GiB,
   senza fermare servizi o workload esistenti. Non equivale a una sessione interattiva
   X11/Wayland completa.
 
@@ -109,7 +111,7 @@ La prima misura W1 (prima dell'icona raster), cinque nodi, Overview visibile a
 1440×900, 30,35 s: CPU **2,17% di un core logico**, RSS massimo **143,02 MiB**.
 È una finestra esplorativa, non una distribuzione statistica né un confronto paired
 con W0; il target CPU <2% non è attestato. I collector non sono cambiati: i benchmark
-paired di inferenza Exon/Spark restano descritti nella W0, senza estendere il risultato
+paired di inferenza GPU workstation/Spark restano descritti nella W0, senza estendere il risultato
 alla UI nuova o a runtime/modelli non misurati.
 
 Restano aperti: approvazione visiva dell'utente sul nuovo layout; accessibilità dei
