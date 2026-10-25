@@ -193,6 +193,8 @@ pub enum Message {
     Rail,
     Density,
     Pause,
+    OpenVisibleHost,
+    DialogKey(iced::keyboard::Key),
     NewHost,
     EditHost(String),
     HostField(setup::Field, String),
@@ -234,6 +236,8 @@ pub struct App {
     fleet_scroll: f32,
     viewport: iced::Size,
     paused: bool,
+    frozen: Option<trust::FrozenView>,
+    dialog_confirm_focused: bool,
 }
 pub fn run(
     data_dir: PathBuf,
@@ -294,6 +298,8 @@ pub fn run(
                 fleet_scroll: 0.0,
                 viewport: display.size,
                 paused: false,
+                frozen: None,
+                dialog_confirm_focused: false,
             }
         },
         App::update,
@@ -321,29 +327,44 @@ pub fn run(
             } else {
                 window::frames().map(|_| Message::Frame)
             },
-            iced::event::listen_with(|event, status, _| {
-                if status == iced::event::Status::Captured {
-                    return None;
-                }
-                let iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
-                    key, modifiers, ..
-                }) = event
-                else {
-                    return None;
-                };
-                use iced::keyboard::{Key, key::Named};
-                match key {
-                    Key::Named(Named::Tab) => Some(Message::Focus(modifiers.shift())),
-                    Key::Named(Named::ArrowLeft) if modifiers.alt() => Some(Message::NextNode(-1)),
-                    Key::Named(Named::ArrowRight) if modifiers.alt() => Some(Message::NextNode(1)),
-                    Key::Character(ref c) if modifiers.command() => c
-                        .parse::<usize>()
-                        .ok()
-                        .filter(|i| (1..=7).contains(i))
-                        .map(|i| Message::Navigate(SECTIONS[i - 1])),
+            if app.remove_host.is_some() {
+                iced::event::listen_with(|event, _, _| match event {
+                    iced::Event::Keyboard(iced::keyboard::Event::KeyPressed { key, .. }) => {
+                        Some(Message::DialogKey(key))
+                    }
                     _ => None,
-                }
-            }),
+                })
+            } else {
+                iced::event::listen_with(|event, status, _| {
+                    let iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
+                        key,
+                        modifiers,
+                        ..
+                    }) = event
+                    else {
+                        return None;
+                    };
+                    if status == iced::event::Status::Captured {
+                        return None;
+                    }
+                    use iced::keyboard::{Key, key::Named};
+                    match key {
+                        Key::Named(Named::Tab) => Some(Message::Focus(modifiers.shift())),
+                        Key::Named(Named::ArrowLeft) if modifiers.alt() => {
+                            Some(Message::NextNode(-1))
+                        }
+                        Key::Named(Named::ArrowRight) if modifiers.alt() => {
+                            Some(Message::NextNode(1))
+                        }
+                        Key::Character(ref c) if modifiers.command() => c
+                            .parse::<usize>()
+                            .ok()
+                            .filter(|i| (1..=7).contains(i))
+                            .map(|i| Message::Navigate(SECTIONS[i - 1])),
+                        _ => None,
+                    }
+                })
+            },
         ])
     })
     .run()
@@ -353,33 +374,7 @@ impl App {
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::Tick => {
-                if self.paused && self.exit_after.is_none() && self.screenshot.is_none() {
-                    return Task::none();
-                }
-                if self._engine.is_some() {
-                    self.view_time_ms = now_ms();
-                }
-                if let Some(engine) = &self._engine {
-                    let shared = engine.state.lock().unwrap();
-                    if std::env::var_os("MOONITOR_RENDER_DIAGNOSTICS").is_some() {
-                        self.pending_samples = shared
-                            .nodes
-                            .iter()
-                            .filter(|n| {
-                                self.nodes
-                                    .iter()
-                                    .find(|old| old.config.id == n.config.id)
-                                    .is_none_or(|old| old.last_seen != n.last_seen)
-                            })
-                            .filter_map(|n| n.last_seen)
-                            .collect();
-                    }
-                    self.nodes = shared.nodes.clone();
-                    self.storage_error = shared.storage_error.clone();
-                    self.dropped_events = shared
-                        .dropped_events
-                        .load(std::sync::atomic::Ordering::Relaxed);
-                }
+                self.refresh_live();
                 self.selected =
                     FleetViewModel::new(&self.nodes, self.selected.as_deref(), Instant::now())
                         .selected_id;
@@ -435,7 +430,10 @@ impl App {
                 }
             }
             Message::Select(id) => {
-                if self.nodes.iter().any(|n| n.config.id == id) {
+                if self.nodes.iter().any(|n| n.config.id == id)
+                    && (!matches!(self.section, Section::Overview | Section::Fleet)
+                        || self.filtered_nodes().iter().any(|n| n.config.id == id))
+                {
                     self.selected = Some(id);
                     self.section = Section::Device;
                     self.tab = Tab::Overview;
@@ -454,15 +452,23 @@ impl App {
                 }
             }
             Message::NextNode(delta) => {
-                if !self.nodes.is_empty() {
-                    let current = self
-                        .nodes
+                let ids = if matches!(self.section, Section::Overview | Section::Fleet) {
+                    self.filtered_nodes()
                         .iter()
-                        .position(|n| Some(n.config.id.as_str()) == self.selected.as_deref())
-                        .unwrap_or(0);
-                    let next =
-                        (current as i32 + delta).rem_euclid(self.nodes.len() as i32) as usize;
-                    self.selected = Some(self.nodes[next].config.id.clone());
+                        .map(|n| n.config.id.clone())
+                        .collect::<Vec<_>>()
+                } else {
+                    self.nodes.iter().map(|n| n.config.id.clone()).collect()
+                };
+                if !ids.is_empty() {
+                    let next = self
+                        .selected
+                        .as_ref()
+                        .and_then(|id| ids.iter().position(|v| v == id))
+                        .map_or(0, |i| {
+                            (i as i32 + delta).rem_euclid(ids.len() as i32) as usize
+                        });
+                    self.selected = Some(ids[next].clone());
                 }
             }
             Message::Tab(tab) => {
@@ -527,7 +533,13 @@ impl App {
                 self.save_preferences(p);
                 self.fleet_scroll = 0.0;
             }
-            Message::Pause => self.paused = !self.paused,
+            Message::Pause => self.toggle_pause(),
+            Message::OpenVisibleHost => {
+                if let Some(id) = self.visible_selection() {
+                    return self.update(Message::Select(id));
+                }
+            }
+            Message::DialogKey(key) => return self.dialog_key(key),
             Message::NewHost
             | Message::EditHost(_)
             | Message::HostField(_, _)
@@ -545,10 +557,10 @@ impl App {
         Task::none()
     }
     fn view(&self) -> Element<'_, Message> {
-        self.workbench_view()
+        self.with_dialog(self.workbench_view())
     }
     fn node_heading<'a>(&self, n: &'a NodeState) -> Element<'a, Message> {
-        let (state, color) = status(n);
+        let (state, color) = self.health_status(n);
         let mut c = column![
             row![
                 text(&n.config.label).size(24).font(STRONG),
@@ -565,7 +577,7 @@ impl App {
                     .tone(MUTED),
             );
         }
-        if !n.live() && n.sample.is_some() {
+        if self.observation_stale(n) && n.sample.is_some() {
             c = c.push(notice(&format!(
                 "Campione ricevuto {} s fa. {}",
                 n.last_seen.map(|t| t.elapsed().as_secs()).unwrap_or(0),
@@ -578,7 +590,7 @@ impl App {
         let Some(s) = &n.sample else {
             return card(
                 column![
-                    text(status(n).0).size(18).font(STRONG),
+                    text(self.health_status(n).0).size(18).font(STRONG),
                     text(&n.config.note).tone(MUTED).size(12),
                     text("Questa vista richiede un agente sul dispositivo. Controlla il tipo di nodo e l'alias SSH in fleet.toml; un dispositivo senza agente resta visibile nell'inventario.").size(13),
                     small_button("Vai alla flotta", Message::Navigate(Section::Fleet))
@@ -642,7 +654,11 @@ impl App {
                         s.sampled_at_unix_ms,
                     );
                     c = c.push(metric(
-                        Metric::percent(&format!("Core {i}"), Some(&reading), !n.live()),
+                        Metric::percent(
+                            &format!("Core {i}"),
+                            Some(&reading),
+                            self.observation_stale(n),
+                        ),
                         ACCENT,
                     ));
                 }
@@ -654,7 +670,7 @@ impl App {
                                 Metric::percent(
                                     "Utilizzo GPU",
                                     Some(&gpu.utilization_percent),
-                                    !n.live()
+                                    self.observation_stale(n)
                                 ),
                                 ACCENT
                             )
@@ -675,15 +691,7 @@ impl App {
                     ));
                 }
                 for t in &s.temperatures {
-                    c = c.push(table_row(
-                        [
-                            &t.label,
-                            &format!("{:.1} °C", t.celsius),
-                            "Temperatura",
-                            "Sistema",
-                        ],
-                        false,
-                    ));
+                    c = c.push(trust::thermal(t, s.sampled_at_unix_ms));
                 }
                 for p in &s.pressure {
                     c = c.push(table_row(
@@ -697,7 +705,11 @@ impl App {
                     ));
                 }
                 c.push(metric(
-                    Metric::percent("Batteria", Some(&s.battery_percent), !n.live()),
+                    Metric::percent(
+                        "Batteria",
+                        Some(&s.battery_percent),
+                        self.observation_stale(n),
+                    ),
                     ACCENT,
                 ))
                 .into()
@@ -715,7 +727,11 @@ impl App {
                         text(&g.name).size(17).font(STRONG),
                         row![
                             metric(
-                                Metric::percent("CARICO", Some(&g.utilization_percent), !n.live()),
+                                Metric::percent(
+                                    "CARICO",
+                                    Some(&g.utilization_percent),
+                                    self.observation_stale(n)
+                                ),
                                 ACCENT
                             ),
                             mini_stat(
@@ -828,7 +844,7 @@ impl App {
                             text(&d.mount).size(17).font(STRONG),
                             text(&d.name).size(11).tone(MUTED),
                             metric(
-                                Metric {label:"Spazio utilizzato".into(), value:used, detail:format!("{} disponibili / {} totali", bytes(Some(d.available_bytes)),bytes(Some(d.total_bytes))), provenance:format!("sysinfo filesystem · (totale − disponibile) / totale · {} ms Unix",d.sampled_at_unix_ms), stale:!n.live()},
+                                Metric {label:"Spazio utilizzato".into(), value:used, detail:format!("{} disponibili / {} totali", bytes(Some(d.available_bytes)),bytes(Some(d.total_bytes))), provenance:format!("sysinfo filesystem · (totale − disponibile) / totale · {} ms Unix",d.sampled_at_unix_ms), stale:self.observation_stale(n)},
                                 ACCENT
                             )
                         ]
@@ -892,8 +908,7 @@ impl App {
                     );
                 }
                 for t in s.temperatures.iter().take(12) {
-                    health =
-                        health.push(text(format!("{}: {:.1} °C", t.label, t.celsius)).size(12));
+                    health = health.push(trust::thermal(t, s.sampled_at_unix_ms));
                 }
                 let mut cores = Row::new().spacing(8);
                 for (i, v) in s.cpu_cores_percent.iter().take(32).enumerate() {
@@ -1369,8 +1384,10 @@ impl canvas::Program<Message> for Icon {
 }
 
 mod chart;
+mod dialog;
 mod instrument;
 mod setup;
+mod trust;
 mod workbench;
 use workbench::SECTIONS;
 pub use workbench::Section;

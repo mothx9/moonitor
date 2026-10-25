@@ -5,6 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod temperature;
+
 pub const SCHEMA_VERSION: u32 = 1;
 pub const MAX_MESSAGE_BYTES: usize = 512 * 1024;
 

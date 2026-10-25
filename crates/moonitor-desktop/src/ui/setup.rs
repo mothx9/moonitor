@@ -140,7 +140,12 @@ impl App {
                 self.form = None;
                 self.remove_host = None
             }
-            Message::RequestRemove(id) => self.remove_host = Some(id),
+            Message::RequestRemove(id) => {
+                if self.nodes.iter().any(|n| n.config.id == id) {
+                    self.remove_host = Some(id);
+                    self.dialog_confirm_focused = false;
+                }
+            }
             Message::SaveHost => {
                 if let Some(form) = &self.form {
                     let result = form.node().and_then(|node| {
@@ -209,6 +214,7 @@ impl App {
         self.form = None;
         self.remove_host = None;
         self.paused = false;
+        self.frozen = None;
         if let Some(old) = self._engine.take() {
             self.applying = true;
             let db = self.data_dir.join("history.sqlite");
@@ -255,25 +261,6 @@ impl App {
                     .size(12)
                     .tone(MUTED),
             );
-        }
-        if let Some(id) = &self.remove_host {
-            let label = self
-                .nodes
-                .iter()
-                .find(|n| n.config.id == *id)
-                .map(|n| n.config.label.as_str())
-                .unwrap_or(id);
-            hosts = hosts
-                .push(notice(&format!(
-                    "Rimuovere {label}? La raccolta si fermerà; lo storico sarà conservato."
-                )))
-                .push(
-                    row![
-                        small_button("Conferma rimozione", Message::RemoveHost(id.clone())),
-                        small_button("Annulla", Message::CancelHost)
-                    ]
-                    .spacing(8),
-                );
         }
         let mut content = column![
             text("Setup").size(23).font(STRONG),

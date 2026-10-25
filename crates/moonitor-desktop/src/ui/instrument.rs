@@ -150,12 +150,12 @@ impl App {
     pub(super) fn filtered_nodes(&self) -> Vec<&NodeState> {
         let filter = self.fleet_filter.to_lowercase();
         let mut nodes = self
-            .nodes
+            .observed_nodes()
             .iter()
             .filter(|n| match filter.as_str() {
-                "online" => n.live(),
+                "online" => self.live_node(n).live(),
                 "attention" => matches!(
-                    NodeStatus::of(n, Instant::now()),
+                    NodeStatus::of(self.live_node(n), Instant::now()),
                     NodeStatus::Stale | NodeStatus::Unreachable
                 ),
                 "uninstrumented" => n.config.kind == crate::config::NodeKind::Unavailable,
@@ -174,7 +174,7 @@ impl App {
                     .cmp(&b.config.label.to_lowercase()),
                 FleetSort::Cpu => metric_value(b, 0).total_cmp(&metric_value(a, 0)),
                 FleetSort::Memory => metric_value(b, 1).total_cmp(&metric_value(a, 1)),
-                FleetSort::State => status(a).0.cmp(status(b).0),
+                FleetSort::State => self.health_status(a).0.cmp(self.health_status(b).0),
             };
             compare.then_with(|| a.config.id.cmp(&b.config.id))
         });
@@ -187,7 +187,7 @@ impl App {
             .iter()
             .filter(|n| {
                 matches!(
-                    NodeStatus::of(n, Instant::now()),
+                    NodeStatus::of(self.live_node(n), Instant::now()),
                     NodeStatus::Stale | NodeStatus::Unreachable
                 )
             })
@@ -246,6 +246,7 @@ impl App {
         let controls = row![
             text_input("Filtra nome / ID / online / attention…", &self.fleet_filter)
                 .on_input(Message::FleetFilter)
+                .on_submit(Message::OpenVisibleHost)
                 .size(12)
                 .padding(7)
                 .width(290),
@@ -254,10 +255,16 @@ impl App {
             small_button("RAM ↓", Message::FleetSort(FleetSort::Memory)),
             small_button("Stato", Message::FleetSort(FleetSort::State)),
             Space::new().width(Fill),
-            self.selected
-                .as_ref()
-                .map(|id| small_button("Apri host →", Message::Select(id.clone())))
-                .unwrap_or_else(|| Space::new().into())
+            button(
+                text(if self.visible_selection().is_some() {
+                    "Apri host →"
+                } else {
+                    "Seleziona una riga"
+                })
+                .size(12)
+            )
+            .padding([7, 10])
+            .on_press_maybe(self.visible_selection().map(Message::Select))
         ]
         .spacing(6)
         .align_y(alignment::Vertical::Center);
@@ -329,7 +336,7 @@ impl App {
         let mut middle = row![matrix].spacing(12).height(Fill);
         if self.preferences.inspector
             && let Some(n) = self
-                .nodes
+                .observed_nodes()
                 .iter()
                 .find(|n| Some(n.config.id.as_str()) == self.selected.as_deref())
         {
@@ -363,7 +370,7 @@ impl App {
     }
     fn fleet_row<'a>(&'a self, n: &'a NodeState, height: f32) -> Element<'a, Message> {
         let s = n.sample.as_ref();
-        let stale = !n.live();
+        let stale = self.observation_stale(n);
         let cpu = Metric::percent("CPU host", s.map(|s| &s.cpu_utilization_percent), stale);
         let memory = s
             .map(|s| Metric::memory(s, stale))
@@ -383,7 +390,7 @@ impl App {
             "Nessun campione".into()
         };
         let net = network(n);
-        let (state, color) = status(n);
+        let (state, color) = self.health_status(n);
         let selected = self.selected.as_deref() == Some(&n.config.id);
         let body = row![
             container(cell(&short(&n.config.label, 25), &short(&platform(n), 28)))
@@ -421,7 +428,7 @@ impl App {
                 .size(11)
                 .tone(color)
                 .width(Length::FillPortion(2)),
-            text(age(n)).size(11).tone(MUTED).width(48)
+            text(age(self.live_node(n))).size(11).tone(MUTED).width(48)
         ]
         .spacing(14)
         .align_y(alignment::Vertical::Center);
@@ -434,19 +441,29 @@ impl App {
             scrollable(
                 column![
                     text(&n.config.label).size(20).font(STRONG),
-                    text(status(n).0).size(12).tone(status(n).1),
+                    text(self.health_status(n).0)
+                        .size(12)
+                        .tone(self.health_status(n).1),
                     text(platform(n)).size(11).tone(MUTED),
                     small_button("Apri host →", Message::Select(n.config.id.clone())),
                     metric(
-                        Metric::percent("CPU", s.map(|s| &s.cpu_utilization_percent), !n.live()),
+                        Metric::percent(
+                            "CPU",
+                            s.map(|s| &s.cpu_utilization_percent),
+                            self.observation_stale(n)
+                        ),
                         CPU
                     ),
                     canvas(chart::ResourceChart::new(&n.history, self.view_time_ms))
                         .width(Fill)
                         .height(115),
-                    text(format!("Ultima ricezione: {} · ID {}", age(n), n.config.id))
-                        .size(10)
-                        .tone(MUTED),
+                    text(format!(
+                        "Ultima ricezione: {} · ID {}",
+                        age(self.live_node(n)),
+                        n.config.id
+                    ))
+                    .size(10)
+                    .tone(MUTED),
                     text(
                         n.error.as_deref().unwrap_or(
                             "Collector read-only · nessuna causalità inferita dalle curve"
@@ -484,10 +501,13 @@ impl App {
         .spacing(8)
         .align_y(alignment::Vertical::Center);
         let state = row![
-            text(status(n).0).size(11).font(STRONG).tone(status(n).1),
+            text(self.health_status(n).0)
+                .size(11)
+                .font(STRONG)
+                .tone(self.health_status(n).1),
             text(format!(
                 "Ultima ricezione {} · {}",
-                age(n),
+                age(self.live_node(n)),
                 n.config.ssh_alias.as_deref().unwrap_or("collector locale")
             ))
             .size(11)
@@ -505,7 +525,7 @@ impl App {
                 Metric::percent(
                     "CPU · utilizzo host",
                     Some(&s.cpu_utilization_percent),
-                    !n.live()
+                    self.observation_stale(n)
                 ),
                 CPU
             ),
@@ -525,7 +545,7 @@ impl App {
         ]
         .spacing(8);
         let mem = column![
-            metric(Metric::memory(s, !n.live()), MEMORY),
+            metric(Metric::memory(s, self.observation_stale(n)), MEMORY),
             text(format!(
                 "Totale fisico {}",
                 bytes(s.memory.total_bytes.value().copied())
@@ -566,7 +586,11 @@ impl App {
                     column![
                         text(format!("{} / {}", g.id, g.name)).size(11).font(MEDIUM),
                         metric(
-                            Metric::percent("GPU device", Some(&g.utilization_percent), !n.live()),
+                            Metric::percent(
+                                "GPU device",
+                                Some(&g.utilization_percent),
+                                self.observation_stale(n)
+                            ),
                             GPU
                         ),
                         text(format!(
@@ -757,7 +781,7 @@ impl App {
                 .spacing(12),
             );
         }
-        let activity=row![panel("PROCESS EXPLORER / campione limitato · 100% = un core",column![row![small_button("Apri explorer →",Message::Tab(Tab::Processes)),text(format!("{} osservati / {} sul nodo",s.processes.len(),s.process_count)).size(10).tone(MUTED)].spacing(12),scrollable(container(ps).padding(iced::Padding{right:12.0,..Default::default()})).height(Fill)].spacing(8)).width(Length::FillPortion(8)),panel("DIAGNOSTICS / SOURCE & FRESHNESS",scrollable(column![text(format!("Campione sorgente {} ms Unix",s.sampled_at_unix_ms)).size(10),text(format!("Ricezione: {} · collector {:.2} ms",age(n),s.collector_duration_ms)).size(11),text(format!("Uptime {:.1} h · schema {}",s.uptime_seconds as f64/3600.0,s.schema_version)).size(11),text(n.error.as_deref().unwrap_or("Nessun errore di trasporto corrente")).size(11).tone(if n.error.is_some(){AMBER}else{HEALTHY}),text("Eventi persistiti e identità di avvio dei processi non ancora raccolti.").size(10).tone(MUTED),small_button("Sensori / pressione →",Message::Tab(Tab::Sensors))].spacing(10)).height(Fill)).width(Length::FillPortion(4))].spacing(10).height(space*0.36);
+        let activity=row![panel("PROCESS EXPLORER / campione limitato · 100% = un core",column![row![small_button("Apri explorer →",Message::Tab(Tab::Processes)),text(format!("{} osservati / {} sul nodo",s.processes.len(),s.process_count)).size(10).tone(MUTED)].spacing(12),scrollable(container(ps).padding(iced::Padding{right:12.0,..Default::default()})).height(Fill)].spacing(8)).width(Length::FillPortion(8)),panel("DIAGNOSTICS / SOURCE & FRESHNESS",scrollable(column![text(format!("Campione sorgente {} ms Unix",s.sampled_at_unix_ms)).size(10),text(format!("Ricezione: {} · collector {:.2} ms",age(self.live_node(n)),s.collector_duration_ms)).size(11),text(format!("Uptime {:.1} h · schema {}",s.uptime_seconds as f64/3600.0,s.schema_version)).size(11),text(n.error.as_deref().unwrap_or("Nessun errore di trasporto corrente")).size(11).tone(if n.error.is_some(){AMBER}else{HEALTHY}),text("Eventi persistiti e identità di avvio dei processi non ancora raccolti.").size(10).tone(MUTED),small_button("Sensori / pressione →",Message::Tab(Tab::Sensors))].spacing(10)).height(Fill)).width(Length::FillPortion(4))].spacing(10).height(space*0.36);
         column![heading, state, compute, io, activity]
             .spacing(10)
             .height(Fill)

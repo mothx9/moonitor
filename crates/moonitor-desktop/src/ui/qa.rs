@@ -37,6 +37,8 @@ fn app(count: usize, tab: Tab) -> App {
         fleet_scroll: 0.0,
         viewport: iced::Size::new(1280.0, 800.0),
         paused: false,
+        frozen: None,
+        dialog_confirm_focused: false,
     }
 }
 fn settings() -> iced::Settings {
@@ -83,6 +85,154 @@ fn switching_context_keeps_the_page_and_absent_data_is_not_stale() {
     assert_eq!(app.selected.as_deref(), Some("qa-4"));
     assert!(!Metric::percent("CPU", None, true).stale);
     assert!(Metric::memory(&crate::fixtures::sample("qa-0"), true).stale);
+}
+
+#[test]
+fn filtered_selection_never_opens_a_hidden_host_and_keys_follow_visible_order() {
+    let mut a = app(5, Tab::Overview);
+    let _ = a.update(Message::FleetFilter("QA device 4".into()));
+    assert!(a.visible_selection().is_none());
+    let _ = a.update(Message::OpenVisibleHost);
+    let _ = a.update(Message::Select("qa-0".into())); // old/stale command
+    assert_eq!(a.section, Section::Overview);
+    let _ = a.update(Message::NextNode(1));
+    assert_eq!(a.selected.as_deref(), Some("qa-4"));
+    let _ = a.update(Message::OpenVisibleHost);
+    assert_eq!(a.section, Section::Device);
+    let _ = a.update(Message::Navigate(Section::Overview));
+    assert_eq!(a.fleet_filter, "QA device 4");
+    assert_eq!(a.visible_selection().as_deref(), Some("qa-4"));
+}
+
+#[test]
+fn frozen_observation_clock_does_not_hide_current_transport_health() {
+    let mut a = app(1, Tab::Overview);
+    let _ = a.update(Message::Pause);
+    // Simulate 61 seconds passing without a real sleep; frozen sample was fresh
+    // at the instant of capture, live samples and transport evolve independently.
+    let old = Instant::now() - Duration::from_secs(61);
+    a.frozen.as_mut().unwrap().reference = old;
+    a.frozen.as_mut().unwrap().nodes[0].last_seen = Some(old);
+    let frozen_time = a.view_time_ms;
+    let sample = std::sync::Arc::make_mut(a.nodes[0].sample.as_mut().unwrap());
+    sample.cpu_utilization_percent = Reading::reported(53.0, "fixture", now_ms());
+    a.nodes[0].last_seen = Some(Instant::now());
+    let _ = a.update(Message::Tick);
+    assert_eq!(
+        a.observed_nodes()[0]
+            .sample
+            .as_ref()
+            .unwrap()
+            .cpu_utilization_percent
+            .value(),
+        Some(&0.0)
+    );
+    assert_eq!(a.health_status(&a.observed_nodes()[0]).0, "Online");
+    assert!(!a.observation_stale(&a.observed_nodes()[0]));
+    assert_eq!(a.view_time_ms, frozen_time);
+    a.nodes[0].error = Some("fixture transport loss".into());
+    assert_eq!(a.health_status(&a.observed_nodes()[0]).0, "Obsoleto");
+    let _ = a.update(Message::Pause);
+    assert!(a.frozen.is_none());
+    assert_eq!(
+        a.observed_nodes()[0]
+            .sample
+            .as_ref()
+            .unwrap()
+            .cpu_utilization_percent
+            .value(),
+        Some(&53.0)
+    );
+}
+
+#[test]
+fn thermal_quarantine_preserves_the_rest_of_the_host() {
+    let mut s = crate::fixtures::sample("qa-0");
+    s.temperatures.push(TemperatureSnapshot {
+        label: "PMU tdev7".into(),
+        celsius: -9201.1,
+    });
+    assert!(s.validate("qa-0").is_ok());
+    assert!(
+        s.temperatures[0]
+            .observation(s.sampled_at_unix_ms)
+            .value_celsius
+            .is_none()
+    );
+    assert_eq!(s.cpu_utilization_percent.value(), Some(&0.0));
+    assert_eq!(s.temperatures[0].celsius, -9201.1);
+}
+
+#[test]
+fn removal_keyboard_defaults_to_cancel_and_escape_never_mutates_fleet() {
+    use iced::keyboard::{Key, key::Named};
+    let mut a = app(5, Tab::Overview);
+    for key in [Named::Escape, Named::Enter] {
+        let _ = a.update(Message::RequestRemove("qa-0".into()));
+        let _ = a.update(Message::DialogKey(Key::Named(key)));
+        assert!(a.remove_host.is_none());
+        assert_eq!(a.nodes.len(), 5);
+    }
+    let _ = a.update(Message::RequestRemove("qa-0".into()));
+    let _ = a.update(Message::DialogKey(Key::Named(Named::Tab)));
+    assert!(a.dialog_confirm_focused);
+    let _ = a.update(Message::DialogKey(Key::Named(Named::Escape)));
+    assert_eq!(a.nodes.len(), 5);
+    let _ = a.update(Message::RemoveHost("qa-0".into()));
+    assert_eq!(a.nodes.len(), 5); // no pending scoped confirmation
+}
+
+#[test]
+#[ignore = "Requires a graphical backend. Run scripts/qa-ui.sh."]
+fn trust_regressions_have_visible_feedback_and_scoped_actions() {
+    let root = std::path::PathBuf::from(std::env::var("MOONITOR_QA_DIR").unwrap());
+    for (w, h) in [(1280.0, 800.0), (1440.0, 900.0)] {
+        for dark in [false, true] {
+            let mut a = app(5, Tab::Overview);
+            a.dark = dark;
+            let _ = a.update(Message::FleetFilter("QA device 4".into()));
+            let mut ui = Simulator::with_size(settings(), (w, h), a.view());
+            ui.click("Seleziona una riga").unwrap();
+            assert!(!ui.into_messages().any(|m| matches!(m, Message::Select(_))));
+            a.section = Section::Settings;
+            let _ = a.update(Message::RequestRemove("qa-0".into()));
+            let mut ui = Simulator::with_size(settings(), (w, h), a.view());
+            for label in ["Rimuovere QA device 0?", "Annulla", "Rimuovi host"] {
+                assert!(ui.find(label).unwrap().visible_bounds().is_some());
+            }
+            assert!(
+                ui.snapshot(&app_theme(dark))
+                    .unwrap()
+                    .matches_image(root.join(format!("s0-dialog-{w}-{dark}")))
+                    .unwrap()
+            );
+            ui.click("Annulla").unwrap();
+            for m in ui.into_messages() {
+                let _ = a.update(m);
+            }
+            assert!(a.remove_host.is_none());
+            a.section = Section::Device;
+            a.tab = Tab::Sensors;
+            let s = std::sync::Arc::make_mut(a.nodes[0].sample.as_mut().unwrap());
+            s.temperatures.push(TemperatureSnapshot {
+                label: "PMU tdev7".into(),
+                celsius: -9201.1,
+            });
+            let mut ui = Simulator::with_size(settings(), (w, h), a.view());
+            assert!(
+                ui.find("Lettura non valida")
+                    .unwrap()
+                    .visible_bounds()
+                    .is_some()
+            );
+            assert!(
+                ui.snapshot(&app_theme(dark))
+                    .unwrap()
+                    .matches_image(root.join(format!("s0-thermal-{w}-{dark}")))
+                    .unwrap()
+            );
+        }
+    }
 }
 
 #[test]
@@ -199,7 +349,9 @@ fn fleet_preview_sort_filter_open_and_empty_host() {
     let _ = app.update(Message::FleetSort(instrument::FleetSort::State));
     assert_eq!(app.selected.as_deref(), Some("qa-4"));
     let _ = app.update(Message::NextNode(-1));
-    assert_eq!(app.selected.as_deref(), Some("qa-3"));
+    // State sorting places unreachable qa-2 immediately before inventory-only qa-4.
+    // Keyboard traversal follows that visible order, rather than config indices.
+    assert_eq!(app.selected.as_deref(), Some("qa-2"));
 }
 
 #[test]

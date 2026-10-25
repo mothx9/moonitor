@@ -80,7 +80,7 @@ impl std::fmt::Display for NodeChoice {
 impl App {
     pub(super) fn workbench_view(&self) -> Element<'_, Message> {
         let node = self
-            .nodes
+            .observed_nodes()
             .iter()
             .find(|n| Some(n.config.id.as_str()) == self.selected.as_deref());
         let choices = self
@@ -105,11 +105,18 @@ impl App {
             text("/").size(14).tone(MUTED),
             text(self.section.label()).size(12).font(MEDIUM),
             Space::new().width(Fill),
-            text(if self.paused {
-                "PAUSA · raccolta attiva"
-            } else {
-                "LIVE · aggiornamento 1 s"
-            })
+            text(self.frozen.as_ref().map_or_else(
+                || "LIVE · aggiornamento 1 s".to_owned(),
+                |f| {
+                    let sec = f.at_ms / 1000;
+                    format!(
+                        "VISTA CONGELATA · {:02}:{:02}:{:02} UTC · salute live",
+                        sec / 3600 % 24,
+                        sec / 60 % 60,
+                        sec % 60
+                    )
+                }
+            ))
             .size(10)
             .tone(if self.paused { AMBER } else { HEALTHY }),
             switcher,
@@ -377,7 +384,7 @@ impl App {
         ]
         .spacing(8);
         let mut count = 0;
-        for n in &self.nodes {
+        for n in self.observed_nodes() {
             if let Some(s) = &n.sample
                 && let Some(models) = s.ollama.models.value()
             {
@@ -387,7 +394,7 @@ impl App {
                             [
                                 &m.name,
                                 &n.config.label,
-                                if n.live() {
+                                if !self.observation_stale(n) {
                                     "Ollama · residente"
                                 } else {
                                     "Ollama · obsoleto"
@@ -416,14 +423,14 @@ impl App {
                 .font(STRONG)
         ]
         .spacing(12);
-        for n in &self.nodes {
+        for n in self.observed_nodes() {
             let state = n
                 .sample
                 .as_ref()
                 .map(|s| reading_reason(&s.ollama.models))
                 .unwrap_or("Nessuna osservazione");
             runtime = runtime.push(table_row(
-                [&n.config.label, "Ollama", state, status(n).0],
+                [&n.config.label, "Ollama", state, self.health_status(n).0],
                 false,
             ));
         }
@@ -431,9 +438,9 @@ impl App {
     }
     fn measured_power(&self) -> (Option<f64>, usize) {
         let values = self
-            .nodes
+            .observed_nodes()
             .iter()
-            .filter(|n| n.live())
+            .filter(|n| !self.observation_stale(n))
             .filter_map(|n| n.sample.as_ref())
             .filter_map(|s| gpu_power(s))
             .collect::<Vec<_>>();
@@ -449,13 +456,13 @@ impl App {
             table_row(["NODO", "POTENZA", "CONFINE", "STATO"], true)
         ]
         .spacing(12);
-        for n in &self.nodes {
+        for n in self.observed_nodes() {
             rows = rows.push(table_row(
                 [
                     &n.config.label,
                     &watts(n.sample.as_ref().and_then(|s| gpu_power(s))),
                     "GPU board",
-                    status(n).0,
+                    self.health_status(n).0,
                 ],
                 false,
             ));
@@ -464,8 +471,8 @@ impl App {
     }
     fn source_summary(&self) -> Element<'_, Message> {
         let mut row = Row::new().spacing(18);
-        for n in &self.nodes {
-            let (state, color) = status(n);
+        for n in self.observed_nodes() {
+            let (state, color) = self.health_status(n);
             row = row.push(
                 button(
                     column![
