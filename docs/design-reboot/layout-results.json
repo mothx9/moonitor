@@ -1,0 +1,1010 @@
+[
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "A",
+    "view": "fleet",
+    "scenario": "empty",
+    "primaryOutsideViewport": [],
+    "capture": "A-edge-empty-1280-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "A",
+    "view": "fleet",
+    "scenario": "empty",
+    "primaryOutsideViewport": [],
+    "capture": "A-edge-empty-1440-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "A",
+    "view": "fleet",
+    "scenario": "filtered",
+    "primaryOutsideViewport": [],
+    "capture": "A-edge-filtered-1280-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "A",
+    "view": "fleet",
+    "scenario": "filtered",
+    "primaryOutsideViewport": [],
+    "capture": "A-edge-filtered-1440-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "A",
+    "view": "fleet",
+    "scenario": "invalid",
+    "primaryOutsideViewport": [],
+    "capture": "A-edge-invalid-1280-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "A",
+    "view": "fleet",
+    "scenario": "invalid",
+    "primaryOutsideViewport": [],
+    "capture": "A-edge-invalid-1440-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "A",
+    "view": "host",
+    "scenario": "multi-gpu",
+    "primaryOutsideViewport": [],
+    "capture": "A-edge-multi-gpu-1280-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "A",
+    "view": "host",
+    "scenario": "multi-gpu",
+    "primaryOutsideViewport": [],
+    "capture": "A-edge-multi-gpu-1440-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "A",
+    "view": "host",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "A-edge-no-gpu-1280-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "A",
+    "view": "host",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "A-edge-no-gpu-1440-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "A",
+    "view": "fleet",
+    "scenario": "paused",
+    "primaryOutsideViewport": [],
+    "capture": "A-edge-paused-1280-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "A",
+    "view": "fleet",
+    "scenario": "paused",
+    "primaryOutsideViewport": [],
+    "capture": "A-edge-paused-1440-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "A",
+    "view": "setup",
+    "scenario": "save-error",
+    "primaryOutsideViewport": [],
+    "capture": "A-edge-save-error-1280-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "A",
+    "view": "setup",
+    "scenario": "save-error",
+    "primaryOutsideViewport": [],
+    "capture": "A-edge-save-error-1440-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "A",
+    "view": "host",
+    "scenario": "unavailable",
+    "primaryOutsideViewport": [],
+    "capture": "A-edge-unavailable-1280-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "A",
+    "view": "host",
+    "scenario": "unavailable",
+    "primaryOutsideViewport": [],
+    "capture": "A-edge-unavailable-1440-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "A",
+    "view": "fleet",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "A-fleet-1280-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "A",
+    "view": "fleet",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "A-fleet-1280-light"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "A",
+    "view": "fleet",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "A-fleet-1440-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "A",
+    "view": "fleet",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "A-fleet-1440-light"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "A",
+    "view": "host",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "A-host-1280-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "A",
+    "view": "host",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "A-host-1280-light"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "A",
+    "view": "host",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "A-host-1440-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "A",
+    "view": "host",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "A-host-1440-light"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "A",
+    "view": "setup",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "A-setup-1280-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "A",
+    "view": "setup",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "A-setup-1280-light"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "A",
+    "view": "setup",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "A-setup-1440-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "A",
+    "view": "setup",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "A-setup-1440-light"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "B",
+    "view": "fleet",
+    "scenario": "empty",
+    "primaryOutsideViewport": [],
+    "capture": "B-edge-empty-1280-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "B",
+    "view": "fleet",
+    "scenario": "empty",
+    "primaryOutsideViewport": [],
+    "capture": "B-edge-empty-1440-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "B",
+    "view": "fleet",
+    "scenario": "filtered",
+    "primaryOutsideViewport": [],
+    "capture": "B-edge-filtered-1280-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "B",
+    "view": "fleet",
+    "scenario": "filtered",
+    "primaryOutsideViewport": [],
+    "capture": "B-edge-filtered-1440-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "B",
+    "view": "fleet",
+    "scenario": "invalid",
+    "primaryOutsideViewport": [],
+    "capture": "B-edge-invalid-1280-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "B",
+    "view": "fleet",
+    "scenario": "invalid",
+    "primaryOutsideViewport": [],
+    "capture": "B-edge-invalid-1440-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "B",
+    "view": "host",
+    "scenario": "multi-gpu",
+    "primaryOutsideViewport": [],
+    "capture": "B-edge-multi-gpu-1280-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "B",
+    "view": "host",
+    "scenario": "multi-gpu",
+    "primaryOutsideViewport": [],
+    "capture": "B-edge-multi-gpu-1440-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "B",
+    "view": "host",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "B-edge-no-gpu-1280-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "B",
+    "view": "host",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "B-edge-no-gpu-1440-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "B",
+    "view": "fleet",
+    "scenario": "paused",
+    "primaryOutsideViewport": [],
+    "capture": "B-edge-paused-1280-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "B",
+    "view": "fleet",
+    "scenario": "paused",
+    "primaryOutsideViewport": [],
+    "capture": "B-edge-paused-1440-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "B",
+    "view": "setup",
+    "scenario": "save-error",
+    "primaryOutsideViewport": [],
+    "capture": "B-edge-save-error-1280-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "B",
+    "view": "setup",
+    "scenario": "save-error",
+    "primaryOutsideViewport": [],
+    "capture": "B-edge-save-error-1440-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "B",
+    "view": "host",
+    "scenario": "unavailable",
+    "primaryOutsideViewport": [],
+    "capture": "B-edge-unavailable-1280-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "B",
+    "view": "host",
+    "scenario": "unavailable",
+    "primaryOutsideViewport": [],
+    "capture": "B-edge-unavailable-1440-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "B",
+    "view": "fleet",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "B-fleet-1280-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "B",
+    "view": "fleet",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "B-fleet-1280-light"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "B",
+    "view": "fleet",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "B-fleet-1440-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "B",
+    "view": "fleet",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "B-fleet-1440-light"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "B",
+    "view": "host",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "B-host-1280-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "B",
+    "view": "host",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "B-host-1280-light"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "B",
+    "view": "host",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "B-host-1440-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "B",
+    "view": "host",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "B-host-1440-light"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "B",
+    "view": "setup",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "B-setup-1280-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "B",
+    "view": "setup",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "B-setup-1280-light"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "B",
+    "view": "setup",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "B-setup-1440-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "B",
+    "view": "setup",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "B-setup-1440-light"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "C",
+    "view": "fleet",
+    "scenario": "empty",
+    "primaryOutsideViewport": [],
+    "capture": "C-edge-empty-1280-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "C",
+    "view": "fleet",
+    "scenario": "empty",
+    "primaryOutsideViewport": [],
+    "capture": "C-edge-empty-1440-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "C",
+    "view": "fleet",
+    "scenario": "filtered",
+    "primaryOutsideViewport": [],
+    "capture": "C-edge-filtered-1280-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "C",
+    "view": "fleet",
+    "scenario": "filtered",
+    "primaryOutsideViewport": [],
+    "capture": "C-edge-filtered-1440-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "C",
+    "view": "fleet",
+    "scenario": "invalid",
+    "primaryOutsideViewport": [],
+    "capture": "C-edge-invalid-1280-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "C",
+    "view": "fleet",
+    "scenario": "invalid",
+    "primaryOutsideViewport": [],
+    "capture": "C-edge-invalid-1440-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "C",
+    "view": "host",
+    "scenario": "multi-gpu",
+    "primaryOutsideViewport": [],
+    "capture": "C-edge-multi-gpu-1280-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "C",
+    "view": "host",
+    "scenario": "multi-gpu",
+    "primaryOutsideViewport": [],
+    "capture": "C-edge-multi-gpu-1440-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "C",
+    "view": "host",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "C-edge-no-gpu-1280-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "C",
+    "view": "host",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "C-edge-no-gpu-1440-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "C",
+    "view": "fleet",
+    "scenario": "paused",
+    "primaryOutsideViewport": [],
+    "capture": "C-edge-paused-1280-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "C",
+    "view": "fleet",
+    "scenario": "paused",
+    "primaryOutsideViewport": [],
+    "capture": "C-edge-paused-1440-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "C",
+    "view": "setup",
+    "scenario": "save-error",
+    "primaryOutsideViewport": [],
+    "capture": "C-edge-save-error-1280-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "C",
+    "view": "setup",
+    "scenario": "save-error",
+    "primaryOutsideViewport": [],
+    "capture": "C-edge-save-error-1440-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "C",
+    "view": "host",
+    "scenario": "unavailable",
+    "primaryOutsideViewport": [],
+    "capture": "C-edge-unavailable-1280-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "C",
+    "view": "host",
+    "scenario": "unavailable",
+    "primaryOutsideViewport": [],
+    "capture": "C-edge-unavailable-1440-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "C",
+    "view": "fleet",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "C-fleet-1280-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "C",
+    "view": "fleet",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "C-fleet-1280-light"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "C",
+    "view": "fleet",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "C-fleet-1440-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "C",
+    "view": "fleet",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "C-fleet-1440-light"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "C",
+    "view": "host",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "C-host-1280-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "C",
+    "view": "host",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "C-host-1280-light"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "C",
+    "view": "host",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "C-host-1440-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "C",
+    "view": "host",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "C-host-1440-light"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "C",
+    "view": "setup",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "C-setup-1280-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "direction": "C",
+    "view": "setup",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "C-setup-1280-light"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "C",
+    "view": "setup",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "C-setup-1440-dark"
+  },
+  {
+    "type": "moonitor-design-layout",
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "direction": "C",
+    "view": "setup",
+    "scenario": "normal",
+    "primaryOutsideViewport": [],
+    "capture": "C-setup-1440-light"
+  }
+]

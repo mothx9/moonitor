@@ -59,6 +59,14 @@ the [roadmap](#roadmap) separates shipped foundations from planned capabilities.
 </p>
 </details>
 
+## Design reboot · active
+
+The current native UI is being redesigned under the owner's
+[25 October mandate and RFC](docs/design-reboot/README.md). Four trust/interaction
+regressions are repaired; three alternative compositions are available as
+explicit design fixtures. **No replacement composition is approved or shipped.**
+See the [qualification and open gates](docs/design-reboot/VERIFICATION-STATUS.md).
+
 ## The workbench
 
 | View | What you can inspect today |

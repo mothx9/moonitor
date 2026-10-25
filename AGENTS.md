@@ -16,10 +16,12 @@ pushing; never force-push or discard unrelated work. Keep commits reviewable.
 - Read `docs/moonitor-professional-upgrade-blueprint.md` and the relevant audit or
   qualification report for substantial work. Verify claims against the code.
 - Keep Iced + wgpu unless a measured limitation justifies an architectural change.
-- The supplied V3 UI specification in `docs/moonitor-v2/reference/` replaces the
-  old W1 layout. Fleet is the landing view; use a compact rail, comparative matrix,
-  single-host resource cockpit and persistent GUI setup. The former 3D renderer is
-  retained for regression only. Follow the V2 kickoff's first vertical slice.
+- The design authority is now `docs/design-reboot/README.md` and its supplied
+  RFC/mandate (25 October 2026). It supersedes incompatible V3 layout decisions.
+  S0 trust corrections are independent of the full redesign; review three
+  compositions before a sweeping frontend implementation. Do not self-approve
+  visual quality or replace backend contracts with design fixtures. The former
+  3D renderer is retained for regression only.
 - The owner replaced the sage/green direction with lunar and stellar themes:
   Moonlight and Deep Space. Use `palette.rs` for shared UI, chart and scene colors.
 - Missing, unsupported, stale and zero are different states. Preserve metric
